@@ -1,5 +1,10 @@
 import stringWidth from 'string-width';
 
+import {
+    gradientCodeAt,
+    type Rgb
+} from './gradient';
+
 const ESC = '\x1b';
 const BEL = '\x07';
 const C1_CSI = '\x9b';
@@ -336,6 +341,34 @@ export function stripSgrCodes(text: string): string {
     return text.replace(SGR_REGEX, '');
 }
 
+export function stripOscCodes(text: string): string {
+    let result = '';
+    let index = 0;
+
+    while (index < text.length) {
+        const escape = parseEscapeSequence(text, index);
+        if (escape) {
+            const isOsc = escape.sequence.startsWith(`${ESC}]`) || escape.sequence.startsWith(C1_OSC);
+            if (!isOsc) {
+                result += escape.sequence;
+            }
+            index = escape.nextIndex;
+            continue;
+        }
+
+        const codePoint = text.codePointAt(index);
+        if (codePoint === undefined) {
+            break;
+        }
+
+        const character = String.fromCodePoint(codePoint);
+        result += character;
+        index += character.length;
+    }
+
+    return result;
+}
+
 export function getVisibleText(text: string): string {
     let result = '';
     let index = 0;
@@ -365,6 +398,11 @@ export function getVisibleWidth(text: string): number {
 }
 
 interface TruncateOptions { ellipsis?: boolean }
+
+export interface LineGradientSegmentResult {
+    text: string;
+    nextColumn: number;
+}
 
 export function truncateStyledText(
     text: string,
@@ -445,4 +483,80 @@ export function truncateStyledText(
     }
 
     return output + ellipsis;
+}
+
+// Paint a foreground gradient across the visible characters of a styled line,
+// assigning each display cluster a color based on its column position so the
+// gradient spans the whole line. Escape sequences (SGR, OSC-8 hyperlinks) pass
+// through untouched, and visible width is unchanged, so flex/powerline layout
+// is unaffected. ansi16 has too few colors for a gradient and is left as-is.
+export function applyLineGradientSegment(
+    text: string,
+    stops: Rgb[],
+    colorLevel: 'ansi16' | 'ansi256' | 'truecolor',
+    startColumn: number,
+    totalWidth: number
+): LineGradientSegmentResult {
+    const visibleWidth = getVisibleWidth(text);
+    if (stops.length === 0 || colorLevel === 'ansi16') {
+        return {
+            text,
+            nextColumn: startColumn + visibleWidth
+        };
+    }
+
+    if (totalWidth <= 1) {
+        return {
+            text,
+            nextColumn: startColumn + visibleWidth
+        };
+    }
+
+    const denominator = totalWidth - 1;
+    let output = '';
+    let column = startColumn;
+    let index = 0;
+
+    while (index < text.length) {
+        const escape = parseEscapeSequence(text, index);
+        if (escape) {
+            output += escape.sequence;
+            index = escape.nextIndex;
+            continue;
+        }
+
+        const cluster = consumeDisplayCluster(text, index);
+        if (!cluster) {
+            break;
+        }
+
+        output += gradientCodeAt(stops, column / denominator, colorLevel) + cluster.text;
+        column += getClusterWidth(cluster.text);
+        index = cluster.nextIndex;
+    }
+
+    return {
+        text: output,
+        nextColumn: column
+    };
+}
+
+// Paint a foreground gradient across the visible characters of a styled line,
+// assigning each display cluster a color based on its column position so the
+// gradient spans the whole line. Escape sequences (SGR, OSC-8 hyperlinks) pass
+// through untouched, and visible width is unchanged, so flex/powerline layout
+// is unaffected. ansi16 has too few colors for a gradient and is left as-is.
+export function applyLineGradient(
+    text: string,
+    stops: Rgb[],
+    colorLevel: 'ansi16' | 'ansi256' | 'truecolor'
+): string {
+    const totalWidth = getVisibleWidth(text);
+    const result = applyLineGradientSegment(text, stops, colorLevel, 0, totalWidth);
+
+    if (result.text === text) {
+        return text;
+    }
+
+    return `${result.text}\x1b[39m`;
 }

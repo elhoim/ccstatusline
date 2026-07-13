@@ -15,6 +15,15 @@ import {
 
 export type ThinkingEffortLevel = TranscriptThinkingEffort;
 
+function resolveThinkingEffortFromStatusJson(context: RenderContext): ResolvedThinkingEffort | null | undefined {
+    const effort = context.data?.effort;
+    if (!effort || !('level' in effort)) {
+        return undefined;
+    }
+
+    return typeof effort.level === 'string' ? normalizeThinkingEffort(effort.level) : null;
+}
+
 function resolveThinkingEffortFromSettings(): ResolvedThinkingEffort | undefined {
     try {
         const settings = loadClaudeSettingsSync({ logErrors: false });
@@ -27,6 +36,11 @@ function resolveThinkingEffortFromSettings(): ResolvedThinkingEffort | undefined
 }
 
 function resolveThinkingEffort(context: RenderContext): ResolvedThinkingEffort | null {
+    const statusEffort = resolveThinkingEffortFromStatusJson(context);
+    if (statusEffort !== undefined) {
+        return statusEffort;
+    }
+
     return getTranscriptThinkingEffort(context.data?.transcript_path)
         ?? resolveThinkingEffortFromSettings()
         ?? null;
@@ -41,7 +55,7 @@ function formatEffort(resolved: ResolvedThinkingEffort | null): string {
 
 export class ThinkingEffortWidget implements Widget {
     getDefaultColor(): string { return 'magenta'; }
-    getDescription(): string { return 'Displays the current thinking effort level (low, medium, high, xhigh, max).\nUnknown levels are shown with a trailing "?" (e.g. "super-max?").\nMay be incorrect when multiple Claude Code sessions are running due to current Claude Code limitations.'; }
+    getDescription(): string { return 'Displays the current thinking effort level (low, medium, high, xhigh, max).\nClaude Code reports Ultracode as xhigh in status line data; Ultracode is not exposed as a separate effort level.\nUnknown levels are shown with a trailing "?" (e.g. "super-max?").\nMay be incorrect when multiple Claude Code sessions are running due to current Claude Code limitations.'; }
     getDisplayName(): string { return 'Thinking Effort'; }
     getCategory(): string { return 'Core'; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
