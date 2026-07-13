@@ -1,0 +1,6 @@
+Auto-merging src/ccstatusline.ts
+CONFLICT (content): Merge conflict in src/ccstatusline.ts
+Auto-merging src/types/Settings.ts
+Auto-merging src/widgets/__tests__/CurrentWorkingDir.test.ts
+CONFLICT (content): Merge conflict in src/widgets/__tests__/CurrentWorkingDir.test.ts
+Automatic merge failed; fix conflicts and then commit the result.

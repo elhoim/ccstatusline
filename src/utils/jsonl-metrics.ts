@@ -152,36 +152,65 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
     try {
         // Use Node.js-compatible file reading
         if (!fs.existsSync(transcriptPath)) {
-            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 };
+            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, contextLength: 0 };
         }
 
         const lines = await readJsonlLines(transcriptPath);
 
         let inputTokens = 0;
         let outputTokens = 0;
-        let cachedTokens = 0;
+        let cacheReadTokens = 0;
+        let cacheCreationTokens = 0;
         let contextLength = 0;
 
-        // Parse each line and sum up token usage for totals
+        // Parse each line and sum up token usage for totals.
+        // Claude Code writes multiple JSONL entries per API call during streaming:
+        // intermediate entries have stop_reason: null, and the final entry has a
+        // string value like "end_turn" or "tool_use". For streaming-aware
+        // transcripts, count finalized entries plus the latest unfinished entry so
+        // live updates do not overcount duplicate partial rows. If the transcript
+        // format has no stop_reason field at all, fall back to counting all entries.
         let mostRecentMainChainEntry: TranscriptLine | null = null;
         let mostRecentTimestamp: Date | null = null;
+
+        const parsedEntries: TranscriptLine[] = [];
+        let hasStopReasonField = false;
 
         for (const line of lines) {
             const data = parseJsonlLine(line) as TranscriptLine | null;
             if (data?.message?.usage) {
-                inputTokens += data.message.usage.input_tokens || 0;
-                outputTokens += data.message.usage.output_tokens || 0;
-                cachedTokens += data.message.usage.cache_read_input_tokens ?? 0;
-                cachedTokens += data.message.usage.cache_creation_input_tokens ?? 0;
+                parsedEntries.push(data);
+                if (Object.hasOwn(data.message, 'stop_reason')) {
+                    hasStopReasonField = true;
+                }
+            }
+        }
 
-                // Track the most recent entry with isSidechain: false (or undefined, which defaults to main chain)
-                // Also skip API error messages (synthetic messages with 0 tokens)
-                if (data.isSidechain !== true && data.timestamp && !data.isApiErrorMessage) {
-                    const entryTime = new Date(data.timestamp);
-                    if (!mostRecentTimestamp || entryTime > mostRecentTimestamp) {
-                        mostRecentTimestamp = entryTime;
-                        mostRecentMainChainEntry = data;
-                    }
+        const entriesToCount = hasStopReasonField
+            ? parsedEntries.filter((data, index) => {
+                const stopReason = data.message?.stop_reason;
+                return Boolean(stopReason) || (stopReason === null && index === parsedEntries.length - 1);
+            })
+            : parsedEntries;
+
+        for (const data of entriesToCount) {
+            const usage = data.message?.usage;
+            if (!usage) {
+                continue;
+            }
+
+            inputTokens += usage.input_tokens || 0;
+            outputTokens += usage.output_tokens || 0;
+            cacheReadTokens += usage.cache_read_input_tokens ?? 0;
+            cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
+
+            // Track the most recent entry with isSidechain: false (or undefined, which defaults to main chain)
+            // Also skip API error messages (synthetic messages with 0 tokens)
+            if (data.isSidechain !== true && data.timestamp && !data.isApiErrorMessage) {
+                const entryTime = new Date(data.timestamp);
+                if (!mostRecentTimestamp || entryTime > mostRecentTimestamp) {
+                    mostRecentTimestamp = entryTime;
+                    mostRecentMainChainEntry = data;
                 }
             }
         }
@@ -194,11 +223,12 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
                 + (usage.cache_creation_input_tokens ?? 0);
         }
 
+        const cachedTokens = cacheReadTokens + cacheCreationTokens;
         const totalTokens = inputTokens + outputTokens + cachedTokens;
 
-        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength };
+        return { inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, totalTokens, contextLength };
     } catch {
-        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 };
+        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, contextLength: 0 };
     }
 }
 
