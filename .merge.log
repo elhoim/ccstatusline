@@ -1,0 +1,5 @@
+Auto-merging src/utils/widget-manifest.ts
+CONFLICT (content): Merge conflict in src/utils/widget-manifest.ts
+Auto-merging src/widgets/index.ts
+CONFLICT (content): Merge conflict in src/widgets/index.ts
+Automatic merge failed; fix conflicts and then commit the result.
