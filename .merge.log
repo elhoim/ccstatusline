@@ -1,7 +1,0 @@
-Auto-merging package.json
-Auto-merging src/tui/components/ItemsEditor.tsx
-Auto-merging src/utils/__tests__/terminal.test.ts
-CONFLICT (content): Merge conflict in src/utils/__tests__/terminal.test.ts
-Auto-merging src/utils/terminal.ts
-CONFLICT (content): Merge conflict in src/utils/terminal.ts
-Automatic merge failed; fix conflicts and then commit the result.
