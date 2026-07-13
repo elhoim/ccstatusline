@@ -10,6 +10,7 @@ import {
 import type { RenderContext } from '../../types/RenderContext';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import { expectGitExecOptions } from '../../utils/__tests__/git-test-helpers';
 import { clearGitCache } from '../../utils/git';
 import { renderOsc8Link } from '../../utils/hyperlink';
 import { GitBranchWidget } from '../GitBranch';
@@ -32,6 +33,7 @@ function render(options: {
     hideNoGit?: boolean;
     isPreview?: boolean;
     linkToRepo?: boolean;
+    maxWidth?: number;
     metadata?: Record<string, string>;
     rawValue?: boolean;
 } = {}) {
@@ -49,6 +51,7 @@ function render(options: {
         id: 'git-branch',
         type: 'git-branch',
         rawValue: options.rawValue,
+        maxWidth: options.maxWidth,
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined
     };
 
@@ -76,18 +79,10 @@ describe('GitBranchWidget', () => {
         expect(render({ cwd: '/tmp/worktree' })).toBe('⎇ feature/worktree');
         expect(mockExecFileSync.mock.calls[0]?.[0]).toBe('git');
         expect(mockExecFileSync.mock.calls[0]?.[1]).toEqual(['rev-parse', '--is-inside-work-tree']);
-        expect(mockExecFileSync.mock.calls[0]?.[2]).toEqual({
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'ignore'],
-            cwd: '/tmp/worktree'
-        });
+        expectGitExecOptions(mockExecFileSync.mock.calls[0]?.[2], '/tmp/worktree');
         expect(mockExecFileSync.mock.calls[1]?.[0]).toBe('git');
-        expect(mockExecFileSync.mock.calls[1]?.[1]).toEqual(['branch', '--show-current']);
-        expect(mockExecFileSync.mock.calls[1]?.[2]).toEqual({
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'ignore'],
-            cwd: '/tmp/worktree'
-        });
+        expect(mockExecFileSync.mock.calls[1]?.[1]).toEqual(['symbolic-ref', '--short', 'HEAD']);
+        expectGitExecOptions(mockExecFileSync.mock.calls[1]?.[2], '/tmp/worktree');
     });
 
     it('should render raw branch value', () => {
@@ -179,6 +174,44 @@ describe('GitBranchWidget', () => {
         mockExecFileSync.mockReturnValueOnce('main');
 
         expect(render({ metadata: { linkToRepo: 'false', linkToGitHub: 'true' } })).toBe('⎇ main');
+    });
+
+    describe('max width', () => {
+        const widget = new GitBranchWidget();
+
+        it.each([
+            { name: 'truncates the branch with an ellipsis', maxWidth: 10, expected: 'feature...' },
+            { name: 'leaves the branch untouched when it fits', maxWidth: 100, expected: 'feature/worktree' }
+        ])('$name', ({ maxWidth, expected }) => {
+            mockExecFileSync.mockReturnValueOnce('true\n');
+            mockExecFileSync.mockReturnValueOnce('feature/worktree');
+
+            expect(render({ rawValue: true, maxWidth })).toBe(expected);
+        });
+
+        it('truncates the visible link label but keeps the full link target', () => {
+            mockExecFileSync.mockReturnValueOnce('true\n');
+            mockExecFileSync.mockReturnValueOnce('feature/worktree');
+            mockExecFileSync.mockReturnValueOnce('git@github.com:owner/repo.git');
+
+            expect(render({ rawValue: true, linkToRepo: true, maxWidth: 10 })).toBe(renderOsc8Link(
+                'https://github.com/owner/repo/tree/feature/worktree',
+                'feature...'
+            ));
+        });
+
+        it('shows the max-width modifier in the editor display', () => {
+            expect(widget.getEditorDisplay({ id: 'git-branch', type: 'git-branch', maxWidth: 12 }).modifierText)
+                .toBe('(max:12)');
+        });
+
+        it('exposes the width keybind', () => {
+            expect(widget.getCustomKeybinds()).toContainEqual({
+                key: 'w',
+                label: '(w)idth',
+                action: 'edit-max-width'
+            });
+        });
     });
 
     describe('toggle action', () => {
