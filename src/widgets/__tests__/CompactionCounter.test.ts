@@ -435,7 +435,7 @@ describe('CompactionCounterWidget', () => {
         it('hides a zero metric value when hide zero is enabled', () => {
             expect(render({
                 compactionData: { count: 4, byTrigger: { auto: 0, manual: 4, unknown: 0 } },
-                item: { ...ITEM, metadata: { metric: 'auto', hideZero: 'true' } }
+                item: { ...ITEM, metadata: { metric: 'auto', hide: 'zero' } }
             })).toBeNull();
         });
 
@@ -449,7 +449,7 @@ describe('CompactionCounterWidget', () => {
         it('shows the sample metric value in preview mode, ignoring hide zero', () => {
             expect(render({
                 isPreview: true,
-                item: { ...ITEM, metadata: { metric: 'unknown', hideZero: 'true' } }
+                item: { ...ITEM, metadata: { metric: 'unknown', hide: 'zero' } }
             })).toBe('0');
             expect(render({
                 isPreview: true,
@@ -460,20 +460,19 @@ describe('CompactionCounterWidget', () => {
         it('shows the metric in the editor display', () => {
             expect(new CompactionCounterWidget().getEditorDisplay({
                 ...ITEM,
-                metadata: { metric: 'reclaimed', hideZero: 'true' }
+                metadata: { metric: 'reclaimed', hide: 'zero' }
             })).toEqual({
                 displayText: 'Compaction Counter',
-                modifierText: '(reclaimed value, hide zero)'
+                modifierText: '(reclaimed value)'
             });
         });
 
-        it('uses only metric and hide-zero keybinds in metric mode', () => {
+        it('uses only the metric keybind in metric mode', () => {
             expect(new CompactionCounterWidget().getCustomKeybinds({
                 ...ITEM,
                 metadata: { metric: 'auto' }
             })).toEqual([
-                { key: 'v', label: '(v)alue', action: 'cycle-metric' },
-                { key: 'h', label: '(h)ide when zero', action: 'toggle-hide-zero' }
+                { key: 'v', label: '(v)alue', action: 'cycle-metric' }
             ]);
         });
 
