@@ -17,6 +17,7 @@ import { generateGuid } from '../../utils/guid';
 import { canDetectTerminalWidth } from '../../utils/terminal';
 import {
     filterWidgetCatalog,
+    getMatchSegments,
     getWidget,
     getWidgetCatalog,
     getWidgetCatalogCategories
@@ -39,6 +40,14 @@ export interface ItemsEditorProps {
     onBack: () => void;
     lineNumber: number;
     settings: Settings;
+}
+
+function isMergedIntoPreviousWidget(widgets: WidgetItem[], index: number): boolean {
+    if (index <= 0) {
+        return false;
+    }
+
+    return Boolean(widgets[index - 1]?.merge);
 }
 
 export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onBack, lineNumber, settings }) => {
@@ -151,6 +160,30 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
         setWidgetPicker(null);
     };
 
+    const currentWidget = widgets[selectedIndex];
+    const isSeparator = currentWidget?.type === 'separator';
+    const isFlexSeparator = currentWidget?.type === 'flex-separator';
+
+    // Check if widget supports raw value using registry
+    let canToggleRaw = false;
+    let customKeybinds: CustomKeybind[] = [];
+    if (currentWidget && !isSeparator && !isFlexSeparator) {
+        const widgetImpl = getWidget(currentWidget.type);
+        if (widgetImpl) {
+            canToggleRaw = widgetImpl.supportsRawValue();
+            // Get custom keybinds from the widget
+            customKeybinds = getCustomKeybindsForWidget(widgetImpl, currentWidget);
+        } else {
+            canToggleRaw = false;
+        }
+    }
+
+    const canMerge = currentWidget && selectedIndex < widgets.length - 1 && !isSeparator && !isFlexSeparator;
+    const canExcludeAlign = Boolean(currentWidget) && !isSeparator && !isFlexSeparator
+        && settings.powerline.enabled && settings.powerline.autoAlign
+        && !isMergedIntoPreviousWidget(widgets, selectedIndex);
+    const hasWidgets = widgets.length > 0;
+
     useInput((input, key) => {
         // Skip input if custom editor is active
         if (customEditorWidget) {
@@ -192,6 +225,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
             key,
             widgets,
             selectedIndex,
+            canExcludeAlign,
             separatorChars,
             onBack,
             onUpdate,
@@ -200,7 +234,8 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
             setShowClearConfirm,
             openWidgetPicker,
             getCustomKeybindsForWidget,
-            setCustomEditorWidget
+            setCustomEditorWidget,
+            getUniqueBackgroundColor
         });
     });
 
@@ -249,28 +284,6 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
         ? (pickerEntries.find(entry => entry.type === widgetPicker.selectedType) ?? pickerEntries[0])
         : null;
 
-    // Build dynamic help text based on selected item
-    const currentWidget = widgets[selectedIndex];
-    const isSeparator = currentWidget?.type === 'separator';
-    const isFlexSeparator = currentWidget?.type === 'flex-separator';
-
-    // Check if widget supports raw value using registry
-    let canToggleRaw = false;
-    let customKeybinds: CustomKeybind[] = [];
-    if (currentWidget && !isSeparator && !isFlexSeparator) {
-        const widgetImpl = getWidget(currentWidget.type);
-        if (widgetImpl) {
-            canToggleRaw = widgetImpl.supportsRawValue();
-            // Get custom keybinds from the widget
-            customKeybinds = getCustomKeybindsForWidget(widgetImpl, currentWidget);
-        } else {
-            canToggleRaw = false;
-        }
-    }
-
-    const canMerge = currentWidget && selectedIndex < widgets.length - 1 && !isSeparator && !isFlexSeparator;
-    const hasWidgets = widgets.length > 0;
-
     // Build main help text (without custom keybinds)
     let helpText = hasWidgets
         ? '↑↓ select, ←→ open type picker'
@@ -279,13 +292,16 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
         helpText += ', Space edit separator';
     }
     if (hasWidgets) {
-        helpText += ', Enter to move, (a)dd via picker, (i)nsert via picker, (d)elete, (c)lear line';
+        helpText += ', Enter to move, (a)dd via picker, (i)nsert via picker, (k) clone, (d)elete, (c)lear line';
     }
     if (canToggleRaw) {
         helpText += ', (r)aw value';
     }
     if (canMerge) {
         helpText += ', (m)erge';
+    }
+    if (canExcludeAlign) {
+        helpText += ', e(x)clude align';
     }
     helpText += ', ESC back';
 
@@ -357,7 +373,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                             ⚠
                             {' '}
                             {settings.powerline.enabled
-                                ? 'Powerline mode active: separators controlled by powerline settings'
+                                ? 'Powerline mode active: manual separators disabled'
                                 : 'Default separator active: manual separators disabled'}
                         </Text>
                     </Box>
@@ -420,6 +436,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                 <>
                                     {topLevelSearchEntries.map((entry, index) => {
                                         const isSelected = entry.type === selectedTopLevelSearchEntry?.type;
+                                        const segments = getMatchSegments(entry.displayName, widgetPicker.categoryQuery);
                                         return (
                                             <Box key={entry.type} flexDirection='row' flexWrap='nowrap'>
                                                 <Box width={3}>
@@ -427,9 +444,16 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                                         {isSelected ? '▶ ' : '  '}
                                                     </Text>
                                                 </Box>
-                                                <Text color={isSelected ? 'green' : undefined}>
-                                                    {`${index + 1}. ${entry.displayName}`}
-                                                </Text>
+                                                <Text color={isSelected ? 'green' : undefined}>{`${index + 1}. `}</Text>
+                                                {segments.map((seg, i) => (
+                                                    <Text
+                                                        key={i}
+                                                        color={isSelected ? 'green' : seg.matched ? 'yellowBright' : undefined}
+                                                        bold={isSelected ? true : seg.matched}
+                                                    >
+                                                        {seg.text}
+                                                    </Text>
+                                                ))}
                                             </Box>
                                         );
                                     })}
@@ -475,6 +499,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                             <>
                                 {pickerEntries.map((entry, index) => {
                                     const isSelected = entry.type === selectedPickerEntry?.type;
+                                    const segments = getMatchSegments(entry.displayName, widgetPicker.widgetQuery);
                                     return (
                                         <Box key={entry.type} flexDirection='row' flexWrap='nowrap'>
                                             <Box width={3}>
@@ -482,9 +507,16 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                                     {isSelected ? '▶ ' : '  '}
                                                 </Text>
                                             </Box>
-                                            <Text color={isSelected ? 'green' : undefined}>
-                                                {`${index + 1}. ${entry.displayName}`}
-                                            </Text>
+                                            <Text color={isSelected ? 'green' : undefined}>{`${index + 1}. `}</Text>
+                                            {segments.map((seg, i) => (
+                                                <Text
+                                                    key={i}
+                                                    color={isSelected ? 'green' : (seg.matched ? 'yellowBright' : undefined)}
+                                                    bold={seg.matched}
+                                                >
+                                                    {seg.text}
+                                                </Text>
+                                            ))}
                                         </Box>
                                     );
                                 })}
@@ -529,6 +561,7 @@ export const ItemsEditor: React.FC<ItemsEditorProps> = ({ widgets, onUpdate, onB
                                         {supportsRawValue && widget.rawValue && <Text dimColor> (raw value)</Text>}
                                         {widget.merge === true && <Text dimColor> (merged→)</Text>}
                                         {widget.merge === 'no-padding' && <Text dimColor> (merged-no-pad→)</Text>}
+                                        {widget.excludeFromAutoAlign && settings.powerline.enabled && settings.powerline.autoAlign && !isMergedIntoPreviousWidget(widgets, index) && <Text dimColor> (no-align)</Text>}
                                     </Box>
                                 );
                             })}

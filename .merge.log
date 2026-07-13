@@ -1,0 +1,10 @@
+Auto-merging src/ccstatusline.ts
+CONFLICT (content): Merge conflict in src/ccstatusline.ts
+Auto-merging src/types/ClaudeSettings.ts
+Auto-merging src/utils/claude-settings.ts
+CONFLICT (content): Merge conflict in src/utils/claude-settings.ts
+Auto-merging src/utils/widget-manifest.ts
+CONFLICT (content): Merge conflict in src/utils/widget-manifest.ts
+Auto-merging src/widgets/index.ts
+CONFLICT (content): Merge conflict in src/widgets/index.ts
+Automatic merge failed; fix conflicts and then commit the result.

@@ -10,14 +10,18 @@ export const WidgetItemSchema = z.object({
     color: z.string().optional(),
     backgroundColor: z.string().optional(),
     bold: z.boolean().optional(),
+    dim: z.union([z.boolean(), z.literal('parens')]).optional(),
     character: z.string().optional(),
     rawValue: z.boolean().optional(),
     customText: z.string().optional(),
+    customSymbol: z.string().optional(),
     commandPath: z.string().optional(),
     maxWidth: z.number().optional(),
     preserveColors: z.boolean().optional(),
     timeout: z.number().optional(),
     merge: z.union([z.boolean(), z.literal('no-padding')]).optional(),
+    hide: z.boolean().optional(),
+    excludeFromAutoAlign: z.boolean().optional(),
     metadata: z.record(z.string(), z.string()).optional()
 });
 
@@ -42,6 +46,7 @@ export interface Widget {
     supportsRawValue(): boolean;
     supportsColors(item: WidgetItem): boolean;
     handleEditorAction?(action: string, item: WidgetItem): WidgetItem | null;
+    getNumericValue?(context: RenderContext, item: WidgetItem): number | null;
 }
 
 export interface WidgetEditorProps {
