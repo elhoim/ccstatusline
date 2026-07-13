@@ -7,12 +7,14 @@ import { z } from 'zod';
 import type { ClaudeSettings } from '../types/ClaudeSettings';
 import {
     SettingsSchema,
+    type InstallationMetadata,
     type Settings
 } from '../types/Settings';
 
 import {
     getConfigPath,
-    isCustomConfigPath
+    isCustomConfigPath,
+    saveInstallationMetadata
 } from './config';
 
 // Re-export for backward compatibility
@@ -24,13 +26,37 @@ const writeFile = fs.promises.writeFile;
 const mkdir = fs.promises.mkdir;
 
 export const CCSTATUSLINE_COMMANDS = {
+    AUTO_NPX: 'npx -y ccstatusline@latest',
+    AUTO_BUNX: 'bunx -y ccstatusline@latest',
+    GLOBAL: 'ccstatusline',
+    // Backward-compatible names for existing callers/tests.
     NPM: 'npx -y ccstatusline@latest',
     BUNX: 'bunx -y ccstatusline@latest',
     SELF_MANAGED: 'ccstatusline'
 };
 
+export const PINNED_INSTALL_COMMANDS = {
+    NPM: (version: string) => `npm install -g ccstatusline@${version}`,
+    BUN: (version: string) => `bun add -g ccstatusline@${version}`
+};
+
+export type StatusLineCommandMode = 'auto-npx' | 'auto-bunx' | 'global';
+
+export interface InstallStatusLineOptions {
+    commandMode: StatusLineCommandMode;
+    supportsRefreshInterval?: boolean;
+    installationMetadata?: InstallationMetadata;
+}
+
+export interface PackageCommandAvailability {
+    npm: boolean;
+    npx: boolean;
+    bun: boolean;
+    bunx: boolean;
+}
+
 export function isKnownCommand(command: string): boolean {
-    const prefixes = [CCSTATUSLINE_COMMANDS.NPM, CCSTATUSLINE_COMMANDS.BUNX, CCSTATUSLINE_COMMANDS.SELF_MANAGED];
+    const prefixes = [CCSTATUSLINE_COMMANDS.AUTO_NPX, CCSTATUSLINE_COMMANDS.AUTO_BUNX, CCSTATUSLINE_COMMANDS.GLOBAL];
     // Also match local development commands (e.g., "bun run /path/to/ccstatusline.ts")
     return prefixes.some(prefix => command === prefix || command.startsWith(`${prefix} --config `))
         || /(?:^|[\s"'\\/])ccstatusline\.ts(?=$|[\s"'])/.test(command);
@@ -204,20 +230,49 @@ export async function isInstalled(): Promise<boolean> {
     );
 }
 
-export function isBunxAvailable(): boolean {
+function isExecutableAvailable(executable: string): boolean {
     try {
-        // Use platform-appropriate command to check for bunx availability
-        const command = process.platform === 'win32' ? 'where bunx' : 'which bunx';
-        execSync(command, { stdio: 'ignore' });
+        const command = process.platform === 'win32' ? `where ${executable}` : `which ${executable}`;
+        execSync(command, { stdio: 'ignore', windowsHide: true });
         return true;
     } catch {
         return false;
     }
 }
 
+export function isNpmAvailable(): boolean {
+    return isExecutableAvailable('npm');
+}
+
+export function isNpxAvailable(): boolean {
+    return isExecutableAvailable('npx');
+}
+
+export function isBunAvailable(): boolean {
+    return isExecutableAvailable('bun');
+}
+
+export function isBunxAvailable(): boolean {
+    return isExecutableAvailable('bunx');
+}
+
+export function getPackageCommandAvailability(): PackageCommandAvailability {
+    return {
+        npm: isNpmAvailable(),
+        npx: isNpxAvailable(),
+        bun: isBunAvailable(),
+        bunx: isBunxAvailable()
+    };
+}
+
 export function getClaudeCodeVersion(): string | null {
     try {
-        const output = execSync('claude --version', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }).trim();
+        const output = execSync('claude --version', {
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'ignore'],
+            timeout: 5000,
+            windowsHide: true
+        }).trim();
         // Output is like "2.1.97 (Claude Code)" — extract the version number
         const match = /^(\d+\.\d+\.\d+)/.exec(output);
         return match?.[1] ?? null;
@@ -256,6 +311,73 @@ function buildCommand(baseCommand: string): string {
     return baseCommand;
 }
 
+export function getBaseCommandForMode(commandMode: StatusLineCommandMode): string {
+    switch (commandMode) {
+        case 'auto-npx':
+            return CCSTATUSLINE_COMMANDS.AUTO_NPX;
+        case 'auto-bunx':
+            return CCSTATUSLINE_COMMANDS.AUTO_BUNX;
+        case 'global':
+            return CCSTATUSLINE_COMMANDS.GLOBAL;
+    }
+}
+
+export function buildStatusLineCommand(commandMode: StatusLineCommandMode): string {
+    return buildCommand(getBaseCommandForMode(commandMode));
+}
+
+function matchesCommandBase(command: string, baseCommand: string): boolean {
+    return command === baseCommand || command.startsWith(`${baseCommand} --config `);
+}
+
+function isLocalDevelopmentCommand(command: string): boolean {
+    return /(?:^|[\s"'\\/])ccstatusline\.ts(?=$|[\s"'])/.test(command);
+}
+
+export function classifyInstallation(
+    command: string | null | undefined,
+    metadata?: InstallationMetadata
+): InstallationMetadata {
+    const statusLineCommand = command ?? '';
+
+    if (matchesCommandBase(statusLineCommand, CCSTATUSLINE_COMMANDS.AUTO_NPX)) {
+        return {
+            method: 'auto-update',
+            packageManager: 'npm'
+        };
+    }
+
+    if (matchesCommandBase(statusLineCommand, CCSTATUSLINE_COMMANDS.AUTO_BUNX)) {
+        return {
+            method: 'auto-update',
+            packageManager: 'bun'
+        };
+    }
+
+    if (matchesCommandBase(statusLineCommand, CCSTATUSLINE_COMMANDS.GLOBAL)) {
+        if (metadata?.method === 'pinned') {
+            return metadata;
+        }
+
+        return {
+            method: 'self-managed',
+            packageManager: 'unknown'
+        };
+    }
+
+    if (isLocalDevelopmentCommand(statusLineCommand)) {
+        return {
+            method: 'self-managed',
+            packageManager: 'unknown'
+        };
+    }
+
+    return {
+        method: 'unknown',
+        packageManager: 'unknown'
+    };
+}
+
 async function loadSavedSettingsForHookSync(): Promise<Settings | null> {
     const configPath = getConfigPath();
     if (!fs.existsSync(configPath)) {
@@ -275,7 +397,11 @@ async function loadSavedSettingsForHookSync(): Promise<Settings | null> {
     }
 }
 
-export async function installStatusLine(useBunx = false, supportsRefreshInterval = false): Promise<void> {
+export async function installStatusLine({
+    commandMode,
+    supportsRefreshInterval = false,
+    installationMetadata
+}: InstallStatusLineOptions): Promise<void> {
     let settings: ClaudeSettings;
 
     const backupPath = await backupClaudeSettings('.orig');
@@ -287,15 +413,11 @@ export async function installStatusLine(useBunx = false, supportsRefreshInterval
         settings = {};
     }
 
-    const baseCommand = useBunx
-        ? CCSTATUSLINE_COMMANDS.BUNX
-        : CCSTATUSLINE_COMMANDS.NPM;
-
     // Update settings with our status line (confirmation already handled in TUI)
     const existingRefreshInterval = settings.statusLine?.refreshInterval;
     settings.statusLine = {
         type: 'command',
-        command: buildCommand(baseCommand),
+        command: buildStatusLineCommand(commandMode),
         padding: 0
     };
 
@@ -305,6 +427,9 @@ export async function installStatusLine(useBunx = false, supportsRefreshInterval
     }
 
     await saveClaudeSettings(settings);
+    if (installationMetadata !== undefined) {
+        await saveInstallationMetadata(installationMetadata);
+    }
 
     const savedSettings = await loadSavedSettingsForHookSync();
     if (savedSettings) {
@@ -327,6 +452,8 @@ export async function uninstallStatusLine(): Promise<void> {
         delete settings.statusLine;
         await saveClaudeSettings(settings);
     }
+
+    await saveInstallationMetadata(undefined);
 
     try {
         const { removeManagedHooks } = await import('./hooks');
@@ -454,4 +581,73 @@ export function getVoiceConfig(cwd: string = process.cwd()): { enabled: boolean 
         }
     }
     return anyFileExisted ? { enabled: false } : null;
+}
+
+const RemoteSessionFileSchema = z.object({
+    sessionId: z.string().optional(),
+    bridgeSessionId: z.string().nullable().optional()
+});
+
+/**
+ * Reads the per-PID session manifests Claude Code writes to `<config>/sessions/<pid>.json`
+ * and returns whether the session matching `sessionId` currently has a remote-control
+ * bridge attached.
+ *
+ * Claude Code writes one file per running interactive session. The `bridgeSessionId`
+ * field is populated when remote control (e.g. the mobile/web bridge) is connected
+ * for that session. Matching by `sessionId` ensures the result reflects the *current*
+ * session rather than any other concurrent Claude Code process.
+ *
+ * Claude Code's observed behavior on disconnect: the field is set to `null` (not removed)
+ * and the file is rewritten within ~1s, so the on-disconnect transition is reflected
+ * promptly at the next status-line refresh.
+ *
+ * - Returns `null` when the sessions directory is missing or no manifest matches —
+ *   widgets should hide themselves in that case rather than render a misleading "off".
+ * - Returns `{ enabled: false }` when the manifest exists but `bridgeSessionId` is
+ *   missing, `null`, or empty (disconnected).
+ * - Returns `{ enabled: true }` when a non-empty `bridgeSessionId` is set.
+ */
+export function getRemoteControlStatus(sessionId: string | undefined): { enabled: boolean } | null {
+    if (!sessionId) {
+        return null;
+    }
+
+    const sessionsDir = path.join(getClaudeConfigDir(), 'sessions');
+    let entries: string[];
+    try {
+        entries = fs.readdirSync(sessionsDir);
+    } catch {
+        return null;
+    }
+
+    for (const entry of entries) {
+        if (!entry.endsWith('.json')) {
+            continue;
+        }
+
+        let content: string;
+        try {
+            content = fs.readFileSync(path.join(sessionsDir, entry), 'utf-8');
+        } catch {
+            continue;
+        }
+
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(content);
+        } catch {
+            continue;
+        }
+
+        const result = RemoteSessionFileSchema.safeParse(parsed);
+        if (!result.success || result.data.sessionId !== sessionId) {
+            continue;
+        }
+
+        const bridge = result.data.bridgeSessionId;
+        return { enabled: typeof bridge === 'string' && bridge.length > 0 };
+    }
+
+    return null;
 }

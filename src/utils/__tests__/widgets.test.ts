@@ -72,7 +72,7 @@ describe('widget catalog', () => {
         expect(types.has('flex-separator')).toBe(true);
     });
 
-    it('hides both separator types in powerline mode', () => {
+    it('hides manual separator but keeps flex separator in powerline mode', () => {
         const catalog = getWidgetCatalog({
             ...baseSettings,
             powerline: {
@@ -83,7 +83,7 @@ describe('widget catalog', () => {
 
         const types = new Set(catalog.map(entry => entry.type));
         expect(types.has('separator')).toBe(false);
-        expect(types.has('flex-separator')).toBe(false);
+        expect(types.has('flex-separator')).toBe(true);
     });
 
     it('returns unique categories in discovery order', () => {
@@ -216,7 +216,7 @@ describe('widget catalog filtering', () => {
     });
 
     it('returns no results when query chars cannot form a subsequence in any entry', () => {
-        const results = filterWidgetCatalog(catalog, 'All', 'zzz');
+        const results = filterWidgetCatalog(catalog, 'All', 'zzzz');
         expect(results).toHaveLength(0);
     });
 
