@@ -1,0 +1,16 @@
+Auto-merging docs/USAGE.md
+CONFLICT (content): Merge conflict in docs/USAGE.md
+Auto-merging src/tui/components/ItemsEditor.tsx
+Auto-merging src/tui/components/items-editor/__tests__/input-handlers.test.ts
+Auto-merging src/tui/components/items-editor/input-handlers.ts
+Auto-merging src/types/Widget.ts
+CONFLICT (content): Merge conflict in src/types/Widget.ts
+Auto-merging src/utils/renderer.ts
+Auto-merging src/widgets/GitBranch.ts
+CONFLICT (content): Merge conflict in src/widgets/GitBranch.ts
+Auto-merging src/widgets/GitRootDir.ts
+CONFLICT (content): Merge conflict in src/widgets/GitRootDir.ts
+Auto-merging src/widgets/__tests__/GitBranch.test.ts
+Auto-merging src/widgets/__tests__/GitRootDir.test.ts
+CONFLICT (content): Merge conflict in src/widgets/__tests__/GitRootDir.test.ts
+Automatic merge failed; fix conflicts and then commit the result.
