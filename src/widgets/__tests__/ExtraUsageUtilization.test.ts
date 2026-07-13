@@ -73,17 +73,28 @@ describe('ExtraUsageUtilizationWidget', () => {
         const baseItem: WidgetItem = { id: 'extra', type: 'extra-usage-utilization' };
 
         expect(widget.getCustomKeybinds(baseItem)).toEqual([
-            { key: 'p', label: '(p)rogress toggle', action: 'toggle-progress' }
+            { key: 'p', label: '(p)rogress toggle', action: 'toggle-progress' },
+            { key: 'u', label: '(u) show remaining', action: 'toggle-invert' }
         ]);
         expect(widget.getCustomKeybinds({
             ...baseItem,
             metadata: { display: 'progress' }
         })).toEqual([
             { key: 'p', label: '(p)rogress toggle', action: 'toggle-progress' },
-            { key: 'v', label: 'in(v)ert fill', action: 'toggle-invert' },
-            { key: 't', label: '(t)ime cursor', action: 'toggle-cursor' }
+            { key: 'u', label: '(u) show remaining', action: 'toggle-invert' }
         ]);
-        expect(widget.getEditorDisplay(baseItem).modifierText).toBeUndefined();
+        expect(widget.getCustomKeybinds({
+            ...baseItem,
+            metadata: { invert: 'true' }
+        })).toEqual([
+            { key: 'p', label: '(p)rogress toggle', action: 'toggle-progress' },
+            { key: 'u', label: '(u) show used', action: 'toggle-invert' }
+        ]);
+        expect(widget.getEditorDisplay(baseItem).modifierText).toBe('(used)');
+        expect(widget.getEditorDisplay({
+            ...baseItem,
+            metadata: { invert: 'true' }
+        }).modifierText).toBe('(remaining)');
 
         expect(widget.getHideableStates().map(state => state.key)).toEqual(['disabled', 'no-data']);
     });
@@ -154,5 +165,28 @@ describe('ExtraUsageUtilizationWidget', () => {
                 extraUsageUtilization: 25
             }
         })).toBe('Overage: [████████████░░░░] 75.0%');
+    });
+
+    it('inverts plain text and preview rendering', () => {
+        const widget = new ExtraUsageUtilizationWidget();
+        const item: WidgetItem = {
+            id: 'extra',
+            metadata: { invert: 'true' },
+            type: 'extra-usage-utilization'
+        };
+
+        expect(render(widget, item, {
+            usageData: {
+                extraUsageEnabled: true,
+                extraUsageUtilization: 25
+            }
+        })).toBe('Overage: 75.0%');
+        expect(render(widget, { ...item, rawValue: true }, {
+            usageData: {
+                extraUsageEnabled: true,
+                extraUsageUtilization: 25
+            }
+        })).toBe('75.0%');
+        expect(render(widget, item, { isPreview: true })).toBe('Overage: 97.4%');
     });
 });

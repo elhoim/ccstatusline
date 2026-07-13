@@ -36,7 +36,7 @@ export class ExtraUsageUtilizationWidget implements Widget {
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         return {
             displayText: this.getDisplayName(),
-            modifierText: getUsageDisplayModifierText(item)
+            modifierText: getUsageDisplayModifierText(item, { showUsageDirection: true })
         };
     }
 
@@ -46,7 +46,7 @@ export class ExtraUsageUtilizationWidget implements Widget {
 
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
         if (action === 'toggle-progress') {
-            return cycleUsageDisplayMode(item, [], true);
+            return cycleUsageDisplayMode(item, [], true, true);
         }
 
         if (action === 'toggle-invert') {
@@ -76,7 +76,7 @@ export class ExtraUsageUtilizationWidget implements Widget {
                 return formatRawOrLabeledValue(item, 'Overage: ', sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, 'Overage: ', `${previewPercent.toFixed(1)}%`);
+            return formatRawOrLabeledValue(item, 'Overage: ', `${renderedPercent.toFixed(1)}%`);
         }
 
         const data = context.usageData ?? {};
@@ -110,11 +110,11 @@ export class ExtraUsageUtilizationWidget implements Widget {
             return formatRawOrLabeledValue(item, 'Overage: ', sliderDisplay);
         }
 
-        return formatRawOrLabeledValue(item, 'Overage: ', `${percent.toFixed(1)}%`);
+        return formatRawOrLabeledValue(item, 'Overage: ', `${renderedPercent.toFixed(1)}%`);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
-        return getUsagePercentCustomKeybinds(item);
+        return getUsagePercentCustomKeybinds(item, false);
     }
 
     supportsRawValue(): boolean { return true; }
