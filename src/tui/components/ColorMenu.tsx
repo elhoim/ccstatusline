@@ -15,9 +15,19 @@ import {
     getAvailableBackgroundColorsForUI,
     getAvailableColorsForUI
 } from '../../utils/colors';
+import { GRADIENT_PRESET_NAMES } from '../../utils/gradient';
+import { shouldInsertInput } from '../../utils/input-guards';
 import { getWidget } from '../../utils/widgets';
 
 import { ConfirmDialog } from './ConfirmDialog';
+import {
+    clearAllWidgetStyling,
+    cycleWidgetColor,
+    cycleWidgetDim,
+    resetWidgetStyling,
+    setWidgetColor,
+    toggleWidgetBold
+} from './color-menu/mutations';
 
 export interface ColorMenuProps {
     widgets: WidgetItem[];
@@ -34,6 +44,11 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
     const [ansi256InputMode, setAnsi256InputMode] = useState(false);
     const [ansi256Input, setAnsi256Input] = useState('');
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [gradientMode, setGradientMode] = useState(false);
+    const [gradientIndex, setGradientIndex] = useState(0);
+    const [gradientCustomStep, setGradientCustomStep] = useState<'start' | 'end' | null>(null);
+    const [gradientStartHex, setGradientStartHex] = useState('');
+    const [gradientHexInput, setGradientHexInput] = useState('');
 
     const powerlineEnabled = settings.powerline.enabled;
 
@@ -47,7 +62,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
         // Include unknown widgets (they might support colors, we just don't know)
         return widgetInstance ? widgetInstance.supportsColors(widget) : true;
     });
-    const [highlightedItemId, setHighlightedItemId] = useState<string | null>(colorableWidgets[0]?.id ?? null);
+    const [highlightedItemId, setHighlightedItemId] = useState(colorableWidgets[0]?.id ?? null);
     const [editingBackground, setEditingBackground] = useState(false);
 
     // Handle keyboard input
@@ -79,17 +94,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                     const hexColor = `hex:${hexInput}`;
                     const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
                     if (selectedWidget) {
-                        // IMPORTANT: Update ALL items (not just colorableWidgets) to maintain proper indexing
-                        const newItems = widgets.map((widget) => {
-                            if (widget.id === highlightedItemId) {
-                                if (editingBackground) {
-                                    return { ...widget, backgroundColor: hexColor };
-                                } else {
-                                    return { ...widget, color: hexColor };
-                                }
-                            }
-                            return widget;
-                        });
+                        const newItems = setWidgetColor(widgets, selectedWidget.id, hexColor, editingBackground);
                         onUpdate(newItems);
                     }
                     setHexInputMode(false);
@@ -97,7 +102,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 }
             } else if (key.backspace || key.delete) {
                 setHexInput(hexInput.slice(0, -1));
-            } else if (input && hexInput.length < 6) {
+            } else if (shouldInsertInput(input, key) && hexInput.length < 6) {
                 // Only accept hex characters (0-9, A-F, a-f)
                 const upperInput = input.toUpperCase();
                 if (/^[0-9A-F]$/.test(upperInput)) {
@@ -125,17 +130,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                     const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
 
                     if (selectedWidget) {
-                        // IMPORTANT: Update ALL items (not just colorableWidgets) to maintain proper indexing
-                        const newItems = widgets.map((widget) => {
-                            if (widget.id === highlightedItemId) {
-                                if (editingBackground) {
-                                    return { ...widget, backgroundColor: ansiColor };
-                                } else {
-                                    return { ...widget, color: ansiColor };
-                                }
-                            }
-                            return widget;
-                        });
+                        const newItems = setWidgetColor(widgets, selectedWidget.id, ansiColor, editingBackground);
 
                         onUpdate(newItems);
                         setAnsi256InputMode(false);
@@ -144,7 +139,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 }
             } else if (key.backspace || key.delete) {
                 setAnsi256Input(ansi256Input.slice(0, -1));
-            } else if (input && ansi256Input.length < 3) {
+            } else if (shouldInsertInput(input, key) && ansi256Input.length < 3) {
                 // Only accept numeric characters (0-9)
                 if (/^[0-9]$/.test(input)) {
                     const newInput = ansi256Input + input;
@@ -153,6 +148,69 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                     if (code <= 255) {
                         setAnsi256Input(newInput);
                     }
+                }
+            }
+            return;
+        }
+
+        // Handle gradient selection mode
+        if (gradientMode) {
+            const exitGradient = () => {
+                setGradientMode(false);
+                setGradientCustomStep(null);
+                setGradientStartHex('');
+                setGradientHexInput('');
+            };
+
+            const applyGradientValue = (value: string) => {
+                const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
+                if (selectedWidget) {
+                    onUpdate(setWidgetColor(widgets, selectedWidget.id, value, false));
+                }
+                exitGradient();
+            };
+
+            // Custom start/end hex entry
+            if (gradientCustomStep) {
+                if (key.escape) {
+                    setGradientCustomStep(null);
+                    setGradientHexInput('');
+                } else if (key.return) {
+                    if (gradientHexInput.length === 6) {
+                        if (gradientCustomStep === 'start') {
+                            setGradientStartHex(gradientHexInput);
+                            setGradientHexInput('');
+                            setGradientCustomStep('end');
+                        } else {
+                            applyGradientValue(`gradient:${gradientStartHex}-${gradientHexInput}`);
+                        }
+                    }
+                } else if (key.backspace || key.delete) {
+                    setGradientHexInput(gradientHexInput.slice(0, -1));
+                } else if (shouldInsertInput(input, key) && gradientHexInput.length < 6) {
+                    const upperInput = input.toUpperCase();
+                    if (/^[0-9A-F]$/.test(upperInput)) {
+                        setGradientHexInput(gradientHexInput + upperInput);
+                    }
+                }
+                return;
+            }
+
+            // Preset list navigation (last item is the "Custom" entry)
+            const total = GRADIENT_PRESET_NAMES.length + 1;
+            if (key.escape) {
+                exitGradient();
+            } else if (key.upArrow) {
+                setGradientIndex((gradientIndex - 1 + total) % total);
+            } else if (key.downArrow) {
+                setGradientIndex((gradientIndex + 1) % total);
+            } else if (key.return) {
+                if (gradientIndex < GRADIENT_PRESET_NAMES.length) {
+                    applyGradientValue(`gradient:${GRADIENT_PRESET_NAMES[gradientIndex]}`);
+                } else {
+                    setGradientStartHex('');
+                    setGradientHexInput('');
+                    setGradientCustomStep('start');
                 }
             }
             return;
@@ -182,6 +240,15 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 setAnsi256InputMode(true);
                 setAnsi256Input('');
             }
+        } else if (input === 'g' || input === 'G') {
+            // Enter gradient selection mode (foreground only, needs a real color palette)
+            if (highlightedItemId && highlightedItemId !== 'back' && !editingBackground && settings.colorLevel >= 2) {
+                setGradientMode(true);
+                setGradientIndex(0);
+                setGradientCustomStep(null);
+                setGradientStartHex('');
+                setGradientHexInput('');
+            }
         } else if ((input === 's' || input === 'S') && !key.ctrl) {
             // Toggle show separators (only if not in powerline mode and no default separator)
             if (!settings.powerline.enabled && !settings.defaultSeparator) {
@@ -198,12 +265,16 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 // Toggle bold for the highlighted item
                 const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
                 if (selectedWidget) {
-                    const newItems = widgets.map((widget) => {
-                        if (widget.id === selectedWidget.id) {
-                            return { ...widget, bold: !widget.bold };
-                        }
-                        return widget;
-                    });
+                    const newItems = toggleWidgetBold(widgets, selectedWidget.id);
+                    onUpdate(newItems);
+                }
+            }
+        } else if (input === 'd' || input === 'D') {
+            if (highlightedItemId && highlightedItemId !== 'back') {
+                // Cycle dim for the highlighted item: off -> whole -> parens -> off
+                const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
+                if (selectedWidget) {
+                    const newItems = cycleWidgetDim(widgets, selectedWidget.id);
                     onUpdate(newItems);
                 }
             }
@@ -212,17 +283,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 // Reset all styling (color, background, and bold) for the highlighted item
                 const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
                 if (selectedWidget) {
-                    const newItems = widgets.map((widget) => {
-                        if (widget.id === selectedWidget.id) {
-                            // Remove color, backgroundColor, and bold properties
-                            const { color, backgroundColor, bold, ...restWidget } = widget;
-                            void color; // Intentionally unused
-                            void backgroundColor; // Intentionally unused
-                            void bold; // Intentionally unused
-                            return restWidget;
-                        }
-                        return widget;
-                    });
+                    const newItems = resetWidgetStyling(widgets, selectedWidget.id);
                     onUpdate(newItems);
                 }
             }
@@ -234,52 +295,13 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
             if (highlightedItemId && highlightedItemId !== 'back') {
                 const selectedWidget = colorableWidgets.find(widget => widget.id === highlightedItemId);
                 if (selectedWidget) {
-                    const newItems = widgets.map((widget) => {
-                        if (widget.id === selectedWidget.id) {
-                            if (editingBackground) {
-                                const currentBgColor = widget.backgroundColor ?? '';  // Empty string for 'none'
-                                let currentBgColorIndex = bgColors.indexOf(currentBgColor);
-                                // If color not found, start from beginning
-                                if (currentBgColorIndex === -1)
-                                    currentBgColorIndex = 0;
-
-                                let nextBgColorIndex;
-                                if (key.rightArrow) {
-                                    nextBgColorIndex = (currentBgColorIndex + 1) % bgColors.length;
-                                } else {
-                                    nextBgColorIndex = currentBgColorIndex === 0 ? bgColors.length - 1 : currentBgColorIndex - 1;
-                                }
-                                const nextBgColor = bgColors[nextBgColorIndex];
-                                return { ...widget, backgroundColor: nextBgColor === '' ? undefined : nextBgColor };
-                            } else {
-                                let defaultColor = 'white';
-                                if (widget.type !== 'separator' && widget.type !== 'flex-separator') {
-                                    const widgetImpl = getWidget(widget.type);
-                                    if (widgetImpl) {
-                                        defaultColor = widgetImpl.getDefaultColor();
-                                    }
-                                }
-                                let currentColor = widget.color ?? defaultColor;
-                                // If color is 'dim', treat as if no color was set
-                                if (currentColor === 'dim') {
-                                    currentColor = defaultColor;
-                                }
-                                let currentColorIndex = colors.indexOf(currentColor);
-                                // If color not found, start from beginning
-                                if (currentColorIndex === -1)
-                                    currentColorIndex = 0;
-
-                                let nextColorIndex;
-                                if (key.rightArrow) {
-                                    nextColorIndex = (currentColorIndex + 1) % colors.length;
-                                } else {
-                                    nextColorIndex = currentColorIndex === 0 ? colors.length - 1 : currentColorIndex - 1;
-                                }
-                                const nextColor = colors[nextColorIndex];
-                                return { ...widget, color: nextColor };
-                            }
-                        }
-                        return widget;
+                    const newItems = cycleWidgetColor({
+                        widgets,
+                        widgetId: selectedWidget.id,
+                        direction: key.rightArrow ? 'right' : 'left',
+                        editingBackground,
+                        colors,
+                        backgroundColors: bgColors
                     });
                     onUpdate(newItems);
                 }
@@ -335,7 +357,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 defaultColor = widgetImpl.getDefaultColor();
             }
         }
-        const styledLabel = applyColors(label, widget.color ?? defaultColor, widget.backgroundColor, widget.bold, level);
+        const styledLabel = applyColors(label, widget.color ?? defaultColor, widget.backgroundColor, widget.bold, level, widget.dim);
         return {
             label: styledLabel,
             value: widget.id
@@ -402,6 +424,13 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                 displayName = `ANSI ${currentColor.substring(8)}`;
             } else if (currentColor.startsWith('hex:')) {
                 displayName = `#${currentColor.substring(4)}`;
+            } else if (currentColor.startsWith('gradient:')) {
+                const body = currentColor.substring(9);
+                if (GRADIENT_PRESET_NAMES.includes(body.toLowerCase())) {
+                    displayName = `Gradient: ${body.toLowerCase()}`;
+                } else {
+                    displayName = `Gradient: ${body}`;
+                }
             } else {
                 const colorOption = colorOptions.find(c => c.value === currentColor);
                 displayName = colorOption ? colorOption.name : currentColor;
@@ -411,6 +440,68 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
             const level = getColorLevelString(settings.colorLevel);
             colorDisplay = applyColors(displayName, currentColor, undefined, false, level);
         }
+    }
+    const styleIndicators = [
+        selectedWidget?.bold ? '[BOLD]' : null,
+        selectedWidget?.dim === true ? '[DIM]' : null,
+        selectedWidget?.dim === 'parens' ? '[DIM ()]' : null
+    ].filter(indicator => indicator !== null).join(' ');
+
+    // Gradient selection mode takes over the whole view
+    if (gradientMode) {
+        const level = getColorLevelString(settings.colorLevel);
+        const widgetName = selectedWidget ? getItemLabel(selectedWidget) : '';
+
+        if (gradientCustomStep) {
+            return (
+                <Box flexDirection='column'>
+                    <Text bold>
+                        Custom Gradient
+                        {widgetName ? ` - ${widgetName}` : ''}
+                    </Text>
+                    <Box marginTop={1} flexDirection='column'>
+                        <Text>{gradientCustomStep === 'start' ? 'Enter START hex color (without #):' : 'Enter END hex color (without #):'}</Text>
+                        {gradientCustomStep === 'end' && (
+                            <Text dimColor>
+                                Start: #
+                                {gradientStartHex}
+                            </Text>
+                        )}
+                        <Text>
+                            #
+                            {gradientHexInput}
+                            <Text dimColor>{gradientHexInput.length < 6 ? '_'.repeat(6 - gradientHexInput.length) : ''}</Text>
+                        </Text>
+                        <Text> </Text>
+                        <Text dimColor>Press Enter when done, ESC to go back</Text>
+                    </Box>
+                </Box>
+            );
+        }
+
+        return (
+            <Box flexDirection='column'>
+                <Text bold>
+                    Select Gradient
+                    {widgetName ? ` - ${widgetName}` : ''}
+                </Text>
+                <Box marginTop={1}>
+                    <Text dimColor>↑↓ to select, Enter to apply, ESC to cancel</Text>
+                </Box>
+                <Box marginTop={1} flexDirection='column'>
+                    {GRADIENT_PRESET_NAMES.map((name, idx) => (
+                        <Text key={name}>
+                            {idx === gradientIndex ? '▶ ' : '  '}
+                            {applyColors(name, `gradient:${name}`, undefined, idx === gradientIndex, level)}
+                        </Text>
+                    ))}
+                    <Text key='custom'>
+                        {gradientIndex === GRADIENT_PRESET_NAMES.length ? '▶ ' : '  '}
+                        Custom (enter two hex stops)
+                    </Text>
+                </Box>
+            </Box>
+        );
     }
 
     // Show confirmation dialog if clearing all colors
@@ -429,15 +520,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                     <ConfirmDialog
                         inline={true}
                         onConfirm={() => {
-                            // Clear all colors from all widgets
-                            const newItems = widgets.map((widget) => {
-                                // Remove color, backgroundColor, and bold properties
-                                const { color, backgroundColor, bold, ...restWidget } = widget;
-                                void color; // Intentionally unused
-                                void backgroundColor; // Intentionally unused
-                                void bold; // Intentionally unused
-                                return restWidget;
-                            });
+                            const newItems = clearAllWidgetStyling(widgets);
                             onUpdate(newItems);
                             setShowClearConfirm(false);
                         }}
@@ -505,8 +588,9 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                         ↑↓ to select, ←→ to cycle
                         {' '}
                         {editingBackground ? 'background' : 'foreground'}
-                        , (f) to toggle bg/fg, (b)old,
+                        , (f) to toggle bg/fg, (b)old, (d)im,
                         {settings.colorLevel === 3 ? ' (h)ex,' : settings.colorLevel === 2 ? ' (a)nsi256,' : ''}
+                        {!editingBackground && settings.colorLevel >= 2 ? ' (g)radient,' : ''}
                         {' '}
                         (r)eset, (c)lear all, ESC to go back
                     </Text>
@@ -528,7 +612,7 @@ export const ColorMenu: React.FC<ColorMenuProps> = ({ widgets, lineIndex, settin
                                 ):
                                 {' '}
                                 {colorDisplay}
-                                {selectedWidget.bold && chalk.bold(' [BOLD]')}
+                                {styleIndicators && ` ${styleIndicators}`}
                             </Text>
                         </Box>
                     ) : (

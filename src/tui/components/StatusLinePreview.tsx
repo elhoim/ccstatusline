@@ -9,13 +9,20 @@ import type { RenderContext } from '../../types/RenderContext';
 import type { Settings } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
 import {
+    getVisibleWidth,
+    stripOscCodes,
+    truncateStyledText
+} from '../../utils/ansi';
+import { advanceGlobalPowerlineThemeIndex } from '../../utils/powerline-theme-index';
+import {
     calculateMaxWidthsFromPreRendered,
+    countPowerlineStartCapSlots,
     preRenderAllWidgets,
     renderStatusLineWithInfo,
     type PreRenderedWidget,
     type RenderResult
 } from '../../utils/renderer';
-import { canDetectTerminalWidth } from '../../utils/terminal';
+import { advanceGlobalSeparatorIndex } from '../../utils/separator-index';
 
 export interface StatusLinePreviewProps {
     lines: WidgetItem[][];
@@ -27,10 +34,11 @@ export interface StatusLinePreviewProps {
 const renderSingleLine = (
     widgets: WidgetItem[],
     terminalWidth: number,
-    widthDetectionAvailable: boolean,
     settings: Settings,
     lineIndex: number,
     globalSeparatorIndex: number,
+    globalPowerlineThemeIndex: number,
+    globalPowerlineStartCapIndex: number,
     preRenderedWidgets: PreRenderedWidget[],
     preCalculatedMaxWidths: number[]
 ): RenderResult => {
@@ -38,16 +46,26 @@ const renderSingleLine = (
     const context: RenderContext = {
         terminalWidth,
         isPreview: true,
+        minimalist: settings.minimalistMode,
+        gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
         lineIndex,
-        globalSeparatorIndex
+        globalSeparatorIndex,
+        globalPowerlineThemeIndex,
+        globalPowerlineStartCapIndex
     };
 
     return renderStatusLineWithInfo(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
 };
 
-export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, terminalWidth, settings, onTruncationChange }) => {
-    const widthDetectionAvailable = React.useMemo(() => canDetectTerminalWidth(), []);
+const PREVIEW_LINE_INDENT = '  ';
 
+export function preparePreviewLineForTerminal(line: string, terminalWidth: number): string {
+    const printableLine = stripOscCodes(line);
+    const availableWidth = Math.max(0, terminalWidth - getVisibleWidth(PREVIEW_LINE_INDENT));
+    return truncateStyledText(printableLine, availableWidth, { ellipsis: true });
+}
+
+export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, terminalWidth, settings, onTruncationChange }) => {
     // Render each configured line
     // Pass the full terminal width - the renderer will handle preview adjustments
     const { renderedLines, anyTruncated } = React.useMemo(() => {
@@ -55,10 +73,17 @@ export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, ter
             return { renderedLines: [], anyTruncated: false };
 
         // Always pre-render all widgets once (for efficiency)
-        const preRenderedLines = preRenderAllWidgets(lines, settings, { terminalWidth, isPreview: true });
+        const preRenderedLines = preRenderAllWidgets(lines, settings, {
+            terminalWidth,
+            isPreview: true,
+            minimalist: settings.minimalistMode,
+            gitCacheTtlSeconds: settings.gitCacheTtlSeconds
+        });
         const preCalculatedMaxWidths = calculateMaxWidthsFromPreRendered(preRenderedLines, settings);
 
         let globalSeparatorIndex = 0;
+        let globalPowerlineThemeIndex = 0;
+        let globalPowerlineStartCapIndex = 0;
         const result: string[] = [];
         let truncated = false;
 
@@ -66,22 +91,34 @@ export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, ter
             const lineItems = lines[i];
             if (lineItems && lineItems.length > 0) {
                 const preRenderedWidgets = preRenderedLines[i] ?? [];
-                const renderResult = renderSingleLine(lineItems, terminalWidth, widthDetectionAvailable, settings, i, globalSeparatorIndex, preRenderedWidgets, preCalculatedMaxWidths);
+                const renderResult = renderSingleLine(
+                    lineItems,
+                    terminalWidth,
+                    settings,
+                    i,
+                    globalSeparatorIndex,
+                    globalPowerlineThemeIndex,
+                    globalPowerlineStartCapIndex,
+                    preRenderedWidgets,
+                    preCalculatedMaxWidths
+                );
                 result.push(renderResult.line);
                 if (renderResult.wasTruncated) {
                     truncated = true;
                 }
 
-                // Count separators used in this line (widgets - 1, excluding merged widgets)
-                const nonMergedWidgets = lineItems.filter((_, idx) => idx === lineItems.length - 1 || !lineItems[idx]?.merge);
-                if (nonMergedWidgets.length > 1) {
-                    globalSeparatorIndex += nonMergedWidgets.length - 1;
+                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems, preRenderedWidgets);
+                if (settings.powerline.enabled) {
+                    globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
+                }
+                if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
+                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
                 }
             }
         }
 
         return { renderedLines: result, anyTruncated: truncated };
-    }, [lines, terminalWidth, widthDetectionAvailable, settings]);
+    }, [lines, terminalWidth, settings]);
 
     // Notify parent when truncation status changes
     React.useEffect(() => {
@@ -97,9 +134,9 @@ export const StatusLinePreview: React.FC<StatusLinePreviewProps> = ({ lines, ter
                 </Text>
             </Box>
             {renderedLines.map((line, index) => (
-                <Text key={index}>
-                    {'  '}
-                    {line}
+                <Text key={index} wrap='truncate'>
+                    {PREVIEW_LINE_INDENT}
+                    {preparePreviewLineForTerminal(line, terminalWidth)}
                     {chalk.reset('')}
                 </Text>
             ))}

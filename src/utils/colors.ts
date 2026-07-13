@@ -2,6 +2,13 @@ import chalk, { type ChalkInstance } from 'chalk';
 
 import type { ColorEntry } from '../types/ColorEntry';
 
+import {
+    applyGradientToText,
+    isGradientSpec,
+    parseGradientSpec,
+    rgbToAnsi256
+} from './gradient';
+
 // Re-export for backward compatibility
 export type { ColorEntry };
 
@@ -111,14 +118,21 @@ export function getChalkColor(colorName: string | undefined, colorLevel: 'ansi16
     }
 
     switch (colorLevel) {
-    case 'ansi256':
-        return colorEntry.ansi256;
-    case 'truecolor':
-        return colorEntry.truecolor;
-    case 'ansi16':
-    default:
-        return colorEntry.ansi16;
+        case 'ansi256':
+            return colorEntry.ansi256;
+        case 'truecolor':
+            return colorEntry.truecolor;
+        case 'ansi16':
+        default:
+            return colorEntry.ansi16;
     }
+}
+
+// Dim each (...) span within the text. \x1b[22m clears bold along with dim,
+// so bold is re-asserted after each span when the surrounding text is bold.
+export function applyParensDim(text: string, bold?: boolean): string {
+    const intensityReset = bold ? '\x1b[22;1m' : '\x1b[22m';
+    return text.replace(/\([^()]*\)/g, span => `\x1b[2m${span}${intensityReset}`);
 }
 
 export function applyColors(
@@ -126,43 +140,88 @@ export function applyColors(
     foregroundColor?: string,
     backgroundColor?: string,
     bold?: boolean,
-    colorLevel: 'ansi16' | 'ansi256' | 'truecolor' = 'ansi16'
+    colorLevel: 'ansi16' | 'ansi256' | 'truecolor' = 'ansi16',
+    dim?: boolean | 'parens'
 ): string {
-    if (!foregroundColor && !backgroundColor && !bold) {
-        return text;
+    const styledText = dim === 'parens' ? applyParensDim(text, bold) : text;
+
+    if (!foregroundColor && !backgroundColor && !bold && dim !== true) {
+        return styledText;
     }
 
-    let result = text;
+    // Use raw ANSI codes for precise reset sequencing.
+    // This avoids style leakage (for example, bold affecting later widgets).
+    let prefix = '';
+    let suffix = '';
 
-    // Apply background color first
-    // This ensures the background is properly established before other styles
-    if (backgroundColor) {
-        const bgChalk = getChalkColor(backgroundColor, colorLevel, true);
-        if (bgChalk) {
-            result = bgChalk(result);
-        }
-    }
-
-    // Apply foreground color second
-    if (foregroundColor) {
-        const fgChalk = getChalkColor(foregroundColor, colorLevel, false);
-        if (fgChalk) {
-            result = fgChalk(result);
-        }
-    }
-
-    // Apply bold last if needed
+    // Apply bold/dim first so they can be reset independently before color
+    // resets. A single \x1b[22m clears both attributes.
     if (bold) {
-        result = chalk.bold(result);
+        prefix += '\x1b[1m';
+    }
+    if (dim === true) {
+        prefix += '\x1b[2m';
+    }
+    if (bold || dim === true) {
+        suffix = '\x1b[22m' + suffix;
     }
 
-    return result;
+    // Apply background color
+    if (backgroundColor) {
+        const bgCode = getColorAnsiCode(backgroundColor, colorLevel, true);
+        if (bgCode) {
+            prefix += bgCode;
+            suffix = '\x1b[49m' + suffix;
+        }
+    }
+
+    // Apply foreground color
+    if (foregroundColor) {
+        // Per-character gradient foreground. Only representable with a real color
+        // palette; at ansi16 (or for an unparseable spec) we fall through to
+        // getColorAnsiCode below, which suppresses gradient specs at ansi16.
+        // parseGradientSpec returns null for non-gradient values, so it doubles
+        // as the prefix guard.
+        const gradientStops = parseGradientSpec(foregroundColor);
+        if (gradientStops && colorLevel !== 'ansi16') {
+            return prefix + applyGradientToText(styledText, gradientStops, colorLevel) + '\x1b[39m' + suffix;
+        }
+
+        const fgCode = getColorAnsiCode(foregroundColor, colorLevel, false);
+        if (fgCode) {
+            prefix += fgCode;
+            suffix = '\x1b[39m' + suffix;
+        }
+    }
+
+    return prefix + styledText + suffix;
 }
 
 // Get raw ANSI codes for a color without the reset codes
 export function getColorAnsiCode(colorName: string | undefined, colorLevel: 'ansi16' | 'ansi256' | 'truecolor' = 'ansi16', isBackground = false): string {
     if (!colorName)
         return '';
+
+    // Handle gradient:<name> / gradient:RRGGBB-RRGGBB / gradient:hex:…,… formats.
+    // A single ANSI code cannot represent a gradient, so collapse to the first
+    // stop as a solid color. The per-character gradient is produced in applyColors();
+    // this path is what the powerline renderer (which calls getColorAnsiCode
+    // directly) sees. At ansi16, return no code so Basic/No Color modes do not
+    // receive truecolor escapes from a stored gradient setting.
+    if (isGradientSpec(colorName)) {
+        const stops = parseGradientSpec(colorName);
+        const first = stops?.[0];
+        if (!first)
+            return '';
+        if (colorLevel === 'ansi16') {
+            return '';
+        }
+        if (colorLevel === 'ansi256') {
+            const code = rgbToAnsi256(first);
+            return isBackground ? `\x1b[48;5;${code}m` : `\x1b[38;5;${code}m`;
+        }
+        return isBackground ? `\x1b[48;2;${first.r};${first.g};${first.b}m` : `\x1b[38;2;${first.r};${first.g};${first.b}m`;
+    }
 
     // Handle ansi256:X format
     if (colorName.startsWith('ansi256:')) {
@@ -193,15 +252,15 @@ export function getColorAnsiCode(colorName: string | undefined, colorLevel: 'ans
     // Now that chalk.level is set correctly, we can use chalk to generate the codes
     let chalkFn: ChalkInstance;
     switch (colorLevel) {
-    case 'ansi256':
-        chalkFn = colorEntry.ansi256;
-        break;
-    case 'truecolor':
-        chalkFn = colorEntry.truecolor;
-        break;
-    default:
-        chalkFn = colorEntry.ansi16;
-        break;
+        case 'ansi256':
+            chalkFn = colorEntry.ansi256;
+            break;
+        case 'truecolor':
+            chalkFn = colorEntry.truecolor;
+            break;
+        default:
+            chalkFn = colorEntry.ansi16;
+            break;
     }
 
     // Apply the color and extract the opening ANSI code

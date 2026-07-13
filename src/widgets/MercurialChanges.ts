@@ -13,6 +13,7 @@ export class MercurialChangesWidget implements Widget {
     getDefaultColor(): string { return 'yellow'; }
     getDescription(): string { return 'Shows Mercurial changes count (+insertions, -deletions)'; }
     getDisplayName(): string { return 'Mercurial Changes'; }
+    getCategory(): string { return 'Mercurial'; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         const hideNoHg = item.metadata?.hideNoHg === 'true';
         const modifiers: string[] = [];

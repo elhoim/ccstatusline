@@ -1,76 +1,159 @@
-import { execSync } from 'child_process';
-
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
     CustomKeybind,
     Widget,
     WidgetEditorDisplay,
+    WidgetEditorProps,
     WidgetItem
 } from '../types/Widget';
+import {
+    isInsideGitWorkTree,
+    runGit
+} from '../utils/git';
+import {
+    buildBranchWebUrl,
+    getRemoteInfo
+} from '../utils/git-remote';
+import {
+    encodeGitRefForUrlPath,
+    renderOsc8Link
+} from '../utils/hyperlink';
+
+import { makeModifierText } from './shared/editor-display';
+import {
+    getHideNoGitKeybinds,
+    getHideNoGitModifierText,
+    handleToggleNoGitAction,
+    isHideNoGitEnabled
+} from './shared/git-no-git';
+import {
+    MAX_WIDTH_ACTION,
+    applyMaxWidth,
+    getMaxWidthKeybind,
+    getMaxWidthModifier,
+    renderMaxWidthEditor
+} from './shared/max-width';
+import { isMetadataFlagEnabled } from './shared/metadata';
+import {
+    formatSymbolPrefix,
+    getSymbolKeybind,
+    renderSymbolOverrideEditor
+} from './shared/symbol-override';
+
+const DEFAULT_SYMBOL = '⎇';
+const LINK_KEY = 'linkToRepo';
+const LEGACY_LINK_KEY = 'linkToGitHub';
+const TOGGLE_LINK_ACTION = 'toggle-link';
+
+function isLinkEnabled(item: WidgetItem): boolean {
+    return isMetadataFlagEnabled(item, LINK_KEY)
+        || (item.metadata?.[LINK_KEY] === undefined && isMetadataFlagEnabled(item, LEGACY_LINK_KEY));
+}
+
+function toggleLink(item: WidgetItem): WidgetItem {
+    const nextEnabled = !isLinkEnabled(item);
+    const {
+        [LINK_KEY]: removedLink,
+        [LEGACY_LINK_KEY]: removedLegacyLink,
+        ...restMetadata
+    } = item.metadata ?? {};
+
+    void removedLink;
+    void removedLegacyLink;
+
+    const nextMetadata = nextEnabled
+        ? { ...restMetadata, [LINK_KEY]: 'true' }
+        : restMetadata;
+
+    return {
+        ...item,
+        metadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined
+    };
+}
 
 export class GitBranchWidget implements Widget {
     getDefaultColor(): string { return 'magenta'; }
     getDescription(): string { return 'Shows the current git branch name'; }
     getDisplayName(): string { return 'Git Branch'; }
+    getCategory(): string { return 'Git'; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
-        const hideNoGit = item.metadata?.hideNoGit === 'true';
+        const isLink = isLinkEnabled(item);
         const modifiers: string[] = [];
-
-        if (hideNoGit) {
+        const noGitText = getHideNoGitModifierText(item);
+        if (noGitText)
             modifiers.push('hide \'no git\'');
-        }
-
+        if (isLink)
+            modifiers.push('repo link');
+        const maxWidthText = getMaxWidthModifier(item);
+        if (maxWidthText)
+            modifiers.push(maxWidthText);
         return {
             displayText: this.getDisplayName(),
-            modifierText: modifiers.length > 0 ? `(${modifiers.join(', ')})` : undefined
+            modifierText: makeModifierText(modifiers)
         };
     }
 
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
-        if (action === 'toggle-nogit') {
-            const currentState = item.metadata?.hideNoGit === 'true';
-            return {
-                ...item,
-                metadata: {
-                    ...item.metadata,
-                    hideNoGit: (!currentState).toString()
-                }
-            };
+        if (action === TOGGLE_LINK_ACTION) {
+            return toggleLink(item);
         }
-        return null;
+        return handleToggleNoGitAction(action, item);
     }
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
-        const hideNoGit = item.metadata?.hideNoGit === 'true';
+        void settings;
+        const hideNoGit = isHideNoGitEnabled(item);
+        const isLink = isLinkEnabled(item);
+        const prefix = formatSymbolPrefix(item, DEFAULT_SYMBOL);
 
         if (context.isPreview) {
-            return item.rawValue ? 'main' : '⎇ main';
+            const text = item.rawValue ? 'main' : `${prefix}main`;
+            return isLink ? renderOsc8Link('https://github.com/owner/repo/tree/main', text) : text;
         }
 
-        const branch = this.getGitBranch();
-        if (branch)
-            return item.rawValue ? branch : `⎇ ${branch}`;
+        if (!isInsideGitWorkTree(context)) {
+            return hideNoGit ? null : `${prefix}no git`;
+        }
 
-        return hideNoGit ? null : '⎇ no git';
+        const branch = this.getGitBranch(context);
+        if (!branch) {
+            return hideNoGit ? null : `${prefix}no git`;
+        }
+
+        const displayText = applyMaxWidth(item.rawValue ? branch : `${prefix}${branch}`, item.maxWidth);
+
+        if (isLink) {
+            const origin = getRemoteInfo('origin', context);
+            if (origin) {
+                return renderOsc8Link(
+                    buildBranchWebUrl(origin, encodeGitRefForUrlPath(branch)),
+                    displayText
+                );
+            }
+        }
+
+        return displayText;
     }
 
-    private getGitBranch(): string | null {
-        try {
-            const branch = execSync('git branch --show-current', {
-                encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore']
-            }).trim();
-            return branch || null;
-        } catch {
-            return null;
-        }
+    private getGitBranch(context: RenderContext): string | null {
+        return runGit('symbolic-ref --short HEAD', context);
     }
 
     getCustomKeybinds(): CustomKeybind[] {
         return [
-            { key: 'h', label: '(h)ide \'no git\' message', action: 'toggle-nogit' }
+            ...getHideNoGitKeybinds(),
+            { key: 'l', label: '(l)ink to repo', action: TOGGLE_LINK_ACTION },
+            getMaxWidthKeybind(),
+            getSymbolKeybind()
         ];
+    }
+
+    renderEditor(props: WidgetEditorProps) {
+        if (props.action === MAX_WIDTH_ACTION) {
+            return renderMaxWidthEditor(props);
+        }
+        return renderSymbolOverrideEditor(props, DEFAULT_SYMBOL);
     }
 
     supportsRawValue(): boolean { return true; }

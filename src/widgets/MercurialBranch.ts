@@ -13,6 +13,7 @@ export class MercurialBranchWidget implements Widget {
     getDefaultColor(): string { return 'magenta'; }
     getDescription(): string { return 'Shows the current Mercurial bookmark or commit description'; }
     getDisplayName(): string { return 'Mercurial Branch'; }
+    getCategory(): string { return 'Mercurial'; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         const hideNoHg = item.metadata?.hideNoHg === 'true';
         const modifiers: string[] = [];

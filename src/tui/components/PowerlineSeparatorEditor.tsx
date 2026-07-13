@@ -6,6 +6,7 @@ import {
 import React, { useState } from 'react';
 
 import type { Settings } from '../../types/Settings';
+import { shouldInsertInput } from '../../utils/input-guards';
 
 export type EditorMode = 'separator' | 'startCap' | 'endCap';
 
@@ -27,12 +28,12 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
     // Get the appropriate array based on mode
     const getItems = () => {
         switch (mode) {
-        case 'separator':
-            return powerlineConfig.separators;
-        case 'startCap':
-            return powerlineConfig.startCaps;
-        case 'endCap':
-            return powerlineConfig.endCaps;
+            case 'separator':
+                return powerlineConfig.separators;
+            case 'startCap':
+                return powerlineConfig.startCaps;
+            case 'endCap':
+                return powerlineConfig.endCaps;
         }
     };
 
@@ -82,24 +83,25 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
             const inversionText = mode === 'separator' && invertBg ? ' [Inverted]' : '';
             return `${preset.char} - ${preset.name}${inversionText}`;
         }
-        const hexCode = char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
-        return `${char} - Custom (\\u${hexCode})${invertBg ? ' [Inverted]' : ''}`;
+        const codePoint = char.codePointAt(0) ?? 0;
+        const hexCode = codePoint.toString(16).toUpperCase().padStart(4, '0');
+        return `${char} - Custom (U+${hexCode})${invertBg ? ' [Inverted]' : ''}`;
     };
 
     const updateSeparators = (newSeparators: string[], newInvertBgs?: boolean[]) => {
         const updatedPowerline = { ...powerlineConfig };
 
         switch (mode) {
-        case 'separator':
-            updatedPowerline.separators = newSeparators;
-            updatedPowerline.separatorInvertBackground = newInvertBgs ?? newSeparators.map((_, i) => invertBgs[i] ?? false);
-            break;
-        case 'startCap':
-            updatedPowerline.startCaps = newSeparators;
-            break;
-        case 'endCap':
-            updatedPowerline.endCaps = newSeparators;
-            break;
+            case 'separator':
+                updatedPowerline.separators = newSeparators;
+                updatedPowerline.separatorInvertBackground = newInvertBgs ?? newSeparators.map((_, i) => invertBgs[i] ?? false);
+                break;
+            case 'startCap':
+                updatedPowerline.startCaps = newSeparators;
+                break;
+            case 'endCap':
+                updatedPowerline.endCaps = newSeparators;
+                break;
         }
 
         onUpdate({
@@ -116,24 +118,27 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
                 setHexInput('');
                 setCursorPos(0);
             } else if (key.return) {
-                if (hexInput.length === 4) {
-                    const char = String.fromCharCode(parseInt(hexInput, 16));
-                    const newSeparators = [...separators];
-                    if (separators.length === 0) {
-                        // Add new item if list is empty
-                        newSeparators.push(char);
-                    } else {
-                        newSeparators[selectedIndex] = char;
+                if (hexInput.length >= 4 && hexInput.length <= 6) {
+                    const codePoint = parseInt(hexInput, 16);
+                    if (codePoint >= 0 && codePoint <= 0x10FFFF) {
+                        const char = String.fromCodePoint(codePoint);
+                        const newSeparators = [...separators];
+                        if (separators.length === 0) {
+                            // Add new item if list is empty
+                            newSeparators.push(char);
+                        } else {
+                            newSeparators[selectedIndex] = char;
+                        }
+                        updateSeparators(newSeparators);
+                        setHexInputMode(false);
+                        setHexInput('');
+                        setCursorPos(0);
                     }
-                    updateSeparators(newSeparators);
-                    setHexInputMode(false);
-                    setHexInput('');
-                    setCursorPos(0);
                 }
             } else if (key.backspace && cursorPos > 0) {
                 setHexInput(hexInput.slice(0, cursorPos - 1) + hexInput.slice(cursorPos));
                 setCursorPos(cursorPos - 1);
-            } else if (input && /[0-9a-fA-F]/.test(input) && hexInput.length < 4) {
+            } else if (shouldInsertInput(input, key) && /[0-9a-fA-F]/.test(input) && hexInput.length < 6) {
                 setHexInput(hexInput.slice(0, cursorPos) + input.toUpperCase() + hexInput.slice(cursorPos));
                 setCursorPos(cursorPos + 1);
             }
@@ -141,10 +146,10 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
             // Normal mode
             if (key.escape) {
                 onBack();
-            } else if (key.upArrow) {
-                setSelectedIndex(Math.max(0, selectedIndex - 1));
+            } else if (key.upArrow && separators.length > 0) {
+                setSelectedIndex(selectedIndex - 1 < 0 ? separators.length - 1 : selectedIndex - 1);
             } else if (key.downArrow && separators.length > 0) {
-                setSelectedIndex(Math.min(separators.length - 1, selectedIndex + 1));
+                setSelectedIndex(selectedIndex + 1 > separators.length - 1 ? 0 : selectedIndex + 1);
             } else if ((key.leftArrow || key.rightArrow) && separators.length > 0) {
                 // Cycle through preset separators
                 const currentChar = separators[selectedIndex] ?? '\uE0B0';
@@ -179,8 +184,8 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
                 }
 
                 updateSeparators(newSeparators, mode === 'separator' ? newInvertBgs : undefined);
-            } else if ((input === 'a' || input === 'A') && (mode === 'separator' || separators.length < 3)) {
-                // Add after current (max 3 for caps)
+            } else if (input === 'a' || input === 'A') {
+                // Add after current
                 const newSeparators = [...separators];
                 const newInvertBgs = mode === 'separator' ? [...invertBgs] : [];
                 const defaultChar = presetSeparators[0]?.char ?? '\uE0B0';
@@ -202,8 +207,8 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
                     updateSeparators(newSeparators, newInvertBgs);
                     setSelectedIndex(selectedIndex + 1);
                 }
-            } else if ((input === 'i' || input === 'I') && (mode === 'separator' || separators.length < 3)) {
-                // Insert before current (max 3 for caps)
+            } else if (input === 'i' || input === 'I') {
+                // Insert before current
                 const newSeparators = [...separators];
                 const newInvertBgs = mode === 'separator' ? [...invertBgs] : [];
                 const defaultChar = presetSeparators[0]?.char ?? '\uE0B0';
@@ -256,16 +261,15 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
 
     const getTitle = () => {
         switch (mode) {
-        case 'separator':
-            return 'Powerline Separator Configuration';
-        case 'startCap':
-            return 'Powerline Start Cap Configuration';
-        case 'endCap':
-            return 'Powerline End Cap Configuration';
+            case 'separator':
+                return 'Powerline Separator Configuration';
+            case 'startCap':
+                return 'Powerline Start Cap Configuration';
+            case 'endCap':
+                return 'Powerline End Cap Configuration';
         }
     };
 
-    const canAdd = mode === 'separator' || separators.length < 3;
     const canDelete = mode !== 'separator' || separators.length > 1;
 
     return (
@@ -275,26 +279,27 @@ export const PowerlineSeparatorEditor: React.FC<PowerlineSeparatorEditorProps> =
             {hexInputMode ? (
                 <Box marginTop={2} flexDirection='column'>
                     <Text>
-                        Enter 4-digit hex code for
+                        Enter hex code (4-6 digits) for
                         {' '}
                         {mode === 'separator' ? 'separator' : 'cap'}
                         {separators.length > 0 ? ` ${selectedIndex + 1}` : ''}
                         :
                     </Text>
                     <Text>
-                        \u
+                        U+
                         {hexInput.slice(0, cursorPos)}
                         <Text backgroundColor='gray' color='black'>{hexInput[cursorPos] ?? '_'}</Text>
                         {hexInput.slice(cursorPos + 1)}
-                        {hexInput.length < 4 && hexInput.length === cursorPos && <Text dimColor>{'_'.repeat(4 - hexInput.length - 1)}</Text>}
+                        {hexInput.length < 6 && hexInput.length === cursorPos && <Text dimColor>{'_'.repeat(6 - hexInput.length - 1)}</Text>}
                     </Text>
-                    <Text dimColor>Enter 4 hex digits (0-9, A-F), then press Enter. ESC to cancel.</Text>
+                    <Text dimColor>Enter 4-6 hex digits (0-9, A-F) for a Unicode code point, then press Enter. ESC to cancel.</Text>
+                    <Text dimColor>Examples: E0B0 (powerline), 1F984 (🦄), 2764 (❤)</Text>
                 </Box>
             ) : (
                 <>
                     <Box>
                         <Text dimColor>
-                            {`↑↓ select, ← → cycle${canAdd ? ', (a)dd, (i)nsert' : ''}${canDelete ? ', (d)elete' : ''}, (c)lear, (h)ex${mode === 'separator' ? ', (t)oggle invert' : ''}, ESC back`}
+                            {`↑↓ select, ← → cycle, (a)dd, (i)nsert${canDelete ? ', (d)elete' : ''}, (c)lear, (h)ex${mode === 'separator' ? ', (t)oggle invert' : ''}, ESC back`}
                         </Text>
                     </Box>
 

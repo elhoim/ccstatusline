@@ -3,27 +3,55 @@ import chalk from 'chalk';
 
 import { runTUI } from './tui';
 import type {
-    BlockMetrics,
+    SkillsMetrics,
+    SpeedMetrics,
     TokenMetrics
 } from './types';
 import type { RenderContext } from './types/RenderContext';
 import type { StatusJSON } from './types/StatusJSON';
 import { StatusJSONSchema } from './types/StatusJSON';
+import { getVisibleText } from './utils/ansi';
 import { updateColorMap } from './utils/colors';
 import {
+    ZERO_COMPACTION_STATS,
+    getCompactionStats
+} from './utils/compaction';
+import {
+    getConfigLoadError,
+    initConfigPath,
     loadSettings,
     saveSettings
 } from './utils/config';
+import { handleHookInput } from './utils/hook-handler';
 import {
-    getBlockMetrics,
     getSessionDuration,
+    getSpeedMetricsCollection,
     getTokenMetrics
 } from './utils/jsonl';
+import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
 import {
+    buildConfigWarningBadge,
     calculateMaxWidthsFromPreRendered,
+    countPowerlineStartCapSlots,
     preRenderAllWidgets,
     renderStatusLine
 } from './utils/renderer';
+import { advanceGlobalSeparatorIndex } from './utils/separator-index';
+import { getSkillsMetrics } from './utils/skills';
+import {
+    getWidgetSpeedWindowSeconds,
+    isWidgetSpeedWindowEnabled
+} from './utils/speed-window';
+import {
+    getPackageVersion,
+    getTerminalWidth
+} from './utils/terminal';
+import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
+
+function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
+    const durationMs = data.cost?.total_duration_ms;
+    return typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0;
+}
 
 async function readStdin(): Promise<string | null> {
     // Check if stdin is a TTY (terminal) - if it is, there's no piped data
@@ -54,8 +82,22 @@ async function readStdin(): Promise<string | null> {
     }
 }
 
+async function ensureWindowsUtf8CodePage() {
+    if (process.platform !== 'win32') {
+        return;
+    }
+
+    try {
+        const { execFileSync } = await import('child_process');
+        execFileSync('chcp.com', ['65001'], { stdio: 'ignore', windowsHide: true });
+    } catch {
+        // Ignore failures to preserve statusline output even in restricted shells.
+    }
+}
+
 async function renderMultipleLines(data: StatusJSON) {
     const settings = await loadSettings();
+    const configError = getConfigLoadError();
 
     // Set global chalk level based on settings
     chalk.level = settings.colorLevel;
@@ -66,37 +108,69 @@ async function renderMultipleLines(data: StatusJSON) {
     // Get all lines to render
     const lines = settings.lines;
 
-    // Get token metrics if needed (check all lines)
-    const hasTokenItems = lines.some(line => line.some(item => ['tokens-input', 'tokens-output', 'tokens-cached', 'tokens-total', 'context-length', 'context-percentage', 'context-percentage-usable'].includes(item.type)));
-
     // Check if session clock is needed
     const hasSessionClock = lines.some(line => line.some(item => item.type === 'session-clock'));
 
-    // Check if block timer is needed
-    const hasBlockTimer = lines.some(line => line.some(item => item.type === 'block-timer'));
+    const speedWidgetTypes = new Set(['output-speed', 'input-speed', 'total-speed']);
+    const hasSpeedItems = lines.some(line => line.some(item => speedWidgetTypes.has(item.type)));
+    const requestedSpeedWindows = new Set<number>();
+    for (const line of lines) {
+        for (const item of line) {
+            if (speedWidgetTypes.has(item.type) && isWidgetSpeedWindowEnabled(item)) {
+                requestedSpeedWindows.add(getWidgetSpeedWindowSeconds(item));
+            }
+        }
+    }
 
     let tokenMetrics: TokenMetrics | null = null;
-    if (hasTokenItems && data.transcript_path) {
+    if (data.transcript_path) {
         tokenMetrics = await getTokenMetrics(data.transcript_path);
     }
 
     let sessionDuration: string | null = null;
-    if (hasSessionClock && data.transcript_path) {
+    if (hasSessionClock && !hasSessionDurationInStatusJson(data) && data.transcript_path) {
         sessionDuration = await getSessionDuration(data.transcript_path);
     }
 
-    let blockMetrics: BlockMetrics | null = null;
-    if (hasBlockTimer) {
-        blockMetrics = getBlockMetrics();
+    const usageData = await prefetchUsageDataIfNeeded(lines, data);
+
+    let speedMetrics: SpeedMetrics | null = null;
+    let windowedSpeedMetrics: Record<string, SpeedMetrics> | null = null;
+    if (hasSpeedItems && data.transcript_path) {
+        const speedMetricsCollection = await getSpeedMetricsCollection(data.transcript_path, {
+            includeSubagents: true,
+            windowSeconds: Array.from(requestedSpeedWindows)
+        });
+
+        speedMetrics = speedMetricsCollection.sessionAverage;
+        windowedSpeedMetrics = speedMetricsCollection.windowed;
     }
+
+    let skillsMetrics: SkillsMetrics | null = null;
+    if (data.session_id) {
+        skillsMetrics = getSkillsMetrics(data.session_id);
+    }
+
+    // Compaction stats — parse compact_boundary markers in this session's transcript
+    const hasCompactionWidget = lines.some(line => line.some(item => item.type === 'compaction-counter'));
+    const compactionData = hasCompactionWidget
+        ? (data.transcript_path ? await getCompactionStats(data.transcript_path) : ZERO_COMPACTION_STATS)
+        : null;
 
     // Create render context
     const context: RenderContext = {
         data,
         tokenMetrics,
+        speedMetrics,
+        windowedSpeedMetrics,
+        usageData,
         sessionDuration,
-        blockMetrics,
-        isPreview: false
+        skillsMetrics,
+        compactionData,
+        terminalWidth: getTerminalWidth(),
+        isPreview: false,
+        minimalist: settings.minimalistMode,
+        gitCacheTtlSeconds: settings.gitCacheTtlSeconds
     };
 
     // Always pre-render all widgets once (for efficiency)
@@ -105,21 +179,31 @@ async function renderMultipleLines(data: StatusJSON) {
 
     // Render each line using pre-rendered content
     let globalSeparatorIndex = 0;
+    let globalPowerlineThemeIndex = 0;
+    let globalPowerlineStartCapIndex = 0;
+    let configBadgePrepended = false;
     for (let i = 0; i < lines.length; i++) {
         const lineItems = lines[i];
         if (lineItems && lineItems.length > 0) {
-            const lineContext = { ...context, lineIndex: i, globalSeparatorIndex };
             const preRenderedWidgets = preRenderedLines[i] ?? [];
-            const line = renderStatusLine(lineItems, settings, lineContext, preRenderedWidgets, preCalculatedMaxWidths);
+            const lineContext = {
+                ...context,
+                lineIndex: i,
+                globalSeparatorIndex,
+                globalPowerlineThemeIndex,
+                globalPowerlineStartCapIndex
+            };
+            let line = renderStatusLine(lineItems, settings, lineContext, preRenderedWidgets, preCalculatedMaxWidths);
 
             // Only output the line if it has content (not just ANSI codes)
             // Strip ANSI codes to check if there's actual text
-            const strippedLine = line.replace(/\x1b\[[0-9;]*m/g, '').trim();
+            const strippedLine = getVisibleText(line).trim();
             if (strippedLine.length > 0) {
-                // Count separators used in this line (widgets - 1, excluding merged widgets)
-                const nonMergedWidgets = lineItems.filter((_, idx) => idx === lineItems.length - 1 || !lineItems[idx]?.merge);
-                if (nonMergedWidgets.length > 1)
-                    globalSeparatorIndex += nonMergedWidgets.length - 1;
+                if (configError && !configBadgePrepended) {
+                    // On the error path settings are always inMemoryDefaults(), whose separators render as ' | '.
+                    line = `${buildConfigWarningBadge(settings.colorLevel)} | ${line}`;
+                    configBadgePrepended = true;
+                }
 
                 // Replace all spaces with non-breaking spaces to prevent VSCode trimming
                 let outputLine = line.replace(/ /g, '\u00A0');
@@ -127,8 +211,21 @@ async function renderMultipleLines(data: StatusJSON) {
                 // Add reset code at the beginning to override Claude Code's dim setting
                 outputLine = '\x1b[0m' + outputLine;
                 console.log(outputLine);
+
+                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems, preRenderedWidgets);
+                if (settings.powerline.enabled) {
+                    globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
+                }
+                if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
+                    globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
+                }
             }
         }
+    }
+
+    // Defensive fallback: if no content line was emitted, ensure the warning is not lost
+    if (configError && !configBadgePrepended) {
+        console.log('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, '\u00A0'));
     }
 
     // Check if there's an update message to display
@@ -161,9 +258,44 @@ async function renderMultipleLines(data: StatusJSON) {
     }
 }
 
+function parseConfigArg(): string | undefined {
+    const idx = process.argv.indexOf('--config');
+    if (idx === -1)
+        return undefined;
+    const configPath = process.argv[idx + 1];
+    if (!configPath || configPath.startsWith('--')) {
+        console.error('--config requires a file path argument');
+        process.exit(1);
+    }
+    process.argv.splice(idx, 2);
+    return configPath;
+}
+
+async function handleHook(): Promise<void> {
+    const input = await readStdin();
+    handleHookInput(input);
+}
+
 async function main() {
+    // Print version and exit (#461). Standard CLI behavior, runs before any other mode.
+    if (process.argv.includes('--version')) {
+        console.log(getPackageVersion());
+        process.exit(0);
+    }
+
+    // Parse --config before anything else
+    initConfigPath(parseConfigArg());
+
+    // Handle --hook mode (cross-platform hook handler for widgets)
+    if (process.argv.includes('--hook')) {
+        await handleHook();
+        return;
+    }
+
     // Check if we're in a piped/non-TTY environment first
     if (!process.stdin.isTTY) {
+        await ensureWindowsUtf8CodePage();
+
         // We're receiving piped input
         const input = await readStdin();
         if (input && input.trim() !== '') {

@@ -1,120 +1,241 @@
 import {
     Box,
-    Text,
-    useInput
+    Text
 } from 'ink';
-import React, { useState } from 'react';
+import React from 'react';
 
-import type { Settings } from '../../types/Settings';
+import type {
+    InstallationMetadata,
+    Settings
+} from '../../types/Settings';
 import { type PowerlineFontStatus } from '../../utils/powerline';
 
+import { List } from './List';
+
+export type MainMenuOption = 'lines'
+    | 'colors'
+    | 'powerline'
+    | 'terminalConfig'
+    | 'globalOverrides'
+    | 'install'
+    | 'manageInstallation'
+    | 'checkUpdates'
+    | 'configureStatusLine'
+    | 'starGithub'
+    | 'save'
+    | 'exit';
+
 export interface MainMenuProps {
-    onSelect: (value: string) => void;
+    onSelect: (value: MainMenuOption, index: number) => void;
     isClaudeInstalled: boolean;
     hasChanges: boolean;
     initialSelection?: number;
     powerlineFontStatus: PowerlineFontStatus;
     settings: Settings | null;
+    installation?: InstallationMetadata;
     previewIsTruncated?: boolean;
 }
 
-export const MainMenu: React.FC<MainMenuProps> = ({ onSelect, isClaudeInstalled, hasChanges, initialSelection = 0, powerlineFontStatus, settings, previewIsTruncated }) => {
-    const [selectedIndex, setSelectedIndex] = useState(initialSelection);
+interface MainMenuItem {
+    label: string;
+    sublabel?: string;
+    disabled?: boolean;
+    value: MainMenuOption;
+    description: string;
+}
 
-    // Build menu structure with visual gaps
-    const menuItems = [
-        { label: '📝 Edit Lines', value: 'lines', selectable: true },
-        { label: '🎨 Edit Colors', value: 'colors', selectable: true },
-        { label: '⚡ Powerline Setup', value: 'powerline', selectable: true },
-        { label: '', value: '_gap1', selectable: false },  // Visual gap
-        { label: '💻 Terminal Options', value: 'terminalConfig', selectable: true },
-        { label: '🌐 Global Overrides', value: 'globalOverrides', selectable: true },
-        { label: '', value: '_gap2', selectable: false },  // Visual gap
-        { label: isClaudeInstalled ? '🔌 Uninstall from Claude Code' : '📦 Install to Claude Code', value: 'install', selectable: true }
+export type MainMenuEntry = MainMenuItem | '-';
+
+function usesManageInstallation(installation?: InstallationMetadata): boolean {
+    return installation?.method === 'pinned' || installation?.method === 'self-managed';
+}
+
+function getInstallationMenuItem(
+    isClaudeInstalled: boolean,
+    installation?: InstallationMetadata
+): MainMenuItem {
+    if (!isClaudeInstalled) {
+        return {
+            label: '📦 Install to Claude Code',
+            value: 'install',
+            description: 'Add ccstatusline to your Claude Code settings for automatic status line rendering'
+        };
+    }
+
+    if (usesManageInstallation(installation)) {
+        return {
+            label: '🧰 Manage Installation',
+            value: 'manageInstallation',
+            description: 'Check pinned global package updates or uninstall ccstatusline'
+        };
+    }
+
+    return {
+        label: '🔌 Uninstall from Claude Code',
+        value: 'install',
+        description: 'Remove ccstatusline from your Claude Code settings'
+    };
+}
+
+export function buildMainMenuItems(
+    isClaudeInstalled: boolean,
+    hasChanges: boolean,
+    installation?: InstallationMetadata
+): MainMenuEntry[] {
+    const menuItems: MainMenuEntry[] = [
+        {
+            label: '📝 Edit Lines',
+            value: 'lines',
+            description:
+                'Configure any number of status lines with various widgets like model info, git status, and token usage'
+        },
+        {
+            label: '🎨 Edit Colors',
+            value: 'colors',
+            description:
+                'Customize colors for each widget including foreground, background, and bold styling'
+        },
+        {
+            label: '⚡ Powerline Setup',
+            value: 'powerline',
+            description:
+                'Install Powerline fonts for enhanced visual separators and symbols in your status line'
+        },
+        '-',
+        {
+            label: '💻 Terminal Options',
+            value: 'terminalConfig',
+            description: 'Configure terminal-specific settings for optimal display'
+        },
+        {
+            label: '🌐 Global Overrides',
+            value: 'globalOverrides',
+            description:
+                'Set global padding, separators, and color overrides that apply to all widgets'
+        },
+        {
+            label: '🔧 Configure Status Line',
+            sublabel: isClaudeInstalled ? undefined : '(install first)',
+            disabled: !isClaudeInstalled,
+            value: 'configureStatusLine',
+            description: 'Configure Claude Code status line settings like refresh interval'
+        },
+        '-',
+        getInstallationMenuItem(isClaudeInstalled, installation)
     ];
 
     if (hasChanges) {
         menuItems.push(
-            { label: '💾 Save & Exit', value: 'save', selectable: true },
-            { label: '❌ Exit without saving', value: 'exit', selectable: true }
+            '-',
+            {
+                label: '💾 Save & Exit',
+                value: 'save',
+                description: 'Save all changes and exit the configuration tool'
+            },
+            {
+                label: '❌ Exit without saving',
+                value: 'exit',
+                description: 'Exit without saving your changes'
+            },
+            '-',
+            {
+                label: '⭐ Like ccstatusline? Star us on GitHub',
+                value: 'starGithub',
+                description: 'Open the ccstatusline GitHub repository in your browser so you can star the project'
+            }
         );
     } else {
-        menuItems.push({ label: '🚪 Exit', value: 'exit', selectable: true });
+        menuItems.push(
+            '-',
+            {
+                label: '🚪 Exit',
+                value: 'exit',
+                description: 'Exit the configuration tool'
+            },
+            '-',
+            {
+                label: '⭐ Like ccstatusline? Star us on GitHub',
+                value: 'starGithub',
+                description: 'Open the ccstatusline GitHub repository in your browser so you can star the project'
+            }
+        );
     }
 
-    // Get only selectable items for navigation
-    const selectableItems = menuItems.filter(item => item.selectable);
+    return menuItems;
+}
 
-    useInput((input, key) => {
-        if (key.upArrow) {
-            setSelectedIndex(Math.max(0, selectedIndex - 1));
-        } else if (key.downArrow) {
-            setSelectedIndex(Math.min(selectableItems.length - 1, selectedIndex + 1));
-        } else if (key.return) {
-            const item = selectableItems[selectedIndex];
-            if (item) {
-                onSelect(item.value);
-            }
+export function getMainMenuSelectionIndex(items: MainMenuEntry[], option: MainMenuOption): number {
+    let selectionIndex = 0;
+
+    for (const item of items) {
+        if (item === '-') {
+            continue;
         }
-    });
 
-    // Get description for selected item
-    const getDescription = (value: string): string => {
-        const descriptions: Record<string, string> = {
-            lines: 'Configure any number of status lines with various widgets like model info, git status, and token usage',
-            colors: 'Customize colors for each widget including foreground, background, and bold styling',
-            powerline: 'Install Powerline fonts for enhanced visual separators and symbols in your status line',
-            globalOverrides: 'Set global padding, separators, and color overrides that apply to all widgets',
-            install: isClaudeInstalled
-                ? 'Remove ccstatusline from your Claude Code settings'
-                : 'Add ccstatusline to your Claude Code settings for automatic status line rendering',
-            terminalConfig: 'Configure terminal-specific settings for optimal display',
-            save: 'Save all changes and exit the configuration tool',
-            exit: hasChanges
-                ? 'Exit without saving your changes'
-                : 'Exit the configuration tool'
-        };
-        return descriptions[value] ?? '';
-    };
+        if (item.value === option) {
+            return selectionIndex;
+        }
 
-    const selectedItem = selectableItems[selectedIndex];
-    const description = selectedItem ? getDescription(selectedItem.value) : '';
+        if (!item.disabled) {
+            selectionIndex += 1;
+        }
+    }
+
+    return 0;
+}
+
+export function getMainMenuInstallSelectionIndex(
+    isClaudeInstalled: boolean,
+    installation?: InstallationMetadata
+): number {
+    const option = isClaudeInstalled && usesManageInstallation(installation)
+        ? 'manageInstallation'
+        : 'install';
+
+    return getMainMenuSelectionIndex(buildMainMenuItems(isClaudeInstalled, false, installation), option);
+}
+
+export const MainMenu: React.FC<MainMenuProps> = ({
+    onSelect,
+    isClaudeInstalled,
+    hasChanges,
+    initialSelection = 0,
+    powerlineFontStatus,
+    settings,
+    installation,
+    previewIsTruncated
+}) => {
+    const menuItems = buildMainMenuItems(isClaudeInstalled, hasChanges, installation);
 
     // Check if we should show the truncation warning
-    const showTruncationWarning = previewIsTruncated && settings?.flexMode === 'full-minus-40';
+    const showTruncationWarning
+        = previewIsTruncated && settings?.flexMode === 'full-minus-40';
 
     return (
         <Box flexDirection='column'>
             {showTruncationWarning && (
                 <Box marginBottom={1}>
-                    <Text color='yellow'>⚠ Some lines are truncated, see Terminal Options → Terminal Width for info</Text>
+                    <Text color='yellow'>
+                        ⚠ Some lines are truncated, see Terminal Options → Terminal Width
+                        for info
+                    </Text>
                 </Box>
             )}
-            <Text bold>Main Menu</Text>
-            <Box marginTop={1} flexDirection='column'>
-                {menuItems.map((item, idx) => {
-                    if (!item.selectable && item.value.startsWith('_gap')) {
-                        return <Text key={item.value}> </Text>;
-                    }
-                    const selectableIdx = selectableItems.indexOf(item);
-                    const isSelected = selectableIdx === selectedIndex;
 
-                    return (
-                        <Text
-                            key={item.value}
-                            color={isSelected ? 'green' : undefined}
-                        >
-                            {isSelected ? '▶  ' : '   '}
-                            {item.label}
-                        </Text>
-                    );
-                })}
-            </Box>
-            {description && (
-                <Box marginTop={1} paddingLeft={2}>
-                    <Text dimColor wrap='wrap'>{description}</Text>
-                </Box>
-            )}
+            <Text bold>Main Menu</Text>
+
+            <List
+                items={menuItems}
+                marginTop={1}
+                onSelect={(value, index) => {
+                    if (value === 'back') {
+                        return;
+                    }
+
+                    onSelect(value, index);
+                }}
+                initialSelection={initialSelection}
+            />
         </Box>
     );
 };
