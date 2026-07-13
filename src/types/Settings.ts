@@ -16,6 +16,25 @@ export const TipsSettingsSchema = z.object({
     maxTipLength: z.number().min(10).default(47)
 });
 
+export const InstallationMetadataSchema = z.discriminatedUnion('method', [
+    z.object({
+        method: z.literal('auto-update'),
+        packageManager: z.enum(['npm', 'bun'])
+    }),
+    z.object({
+        method: z.literal('pinned'),
+        installedVersion: z.string().optional()
+    }),
+    z.object({
+        method: z.literal('self-managed'),
+        packageManager: z.enum(['npm', 'bun', 'unknown']).default('unknown')
+    }),
+    z.object({
+        method: z.literal('unknown'),
+        packageManager: z.enum(['npm', 'bun', 'unknown']).default('unknown')
+    })
+]);
+
 // Schema for v1 settings (before version field was added)
 export const SettingsSchema_v1 = z.object({
     lines: z.array(z.array(WidgetItemSchema)).optional(),
@@ -57,6 +76,7 @@ export const SettingsSchema = z.object({
     overrideBackgroundColor: z.string().optional(),
     overrideForegroundColor: z.string().optional(),
     globalBold: z.boolean().default(false),
+    gitCacheTtlSeconds: z.number().min(0).max(60).default(5),
     minimalistMode: z.boolean().default(false),
     powerline: PowerlineConfigSchema.default({
         enabled: false,
@@ -68,15 +88,26 @@ export const SettingsSchema = z.object({
         autoAlign: false,
         continueThemeAcrossLines: false
     }),
-    tips: TipsSettingsSchema.default({}),
+    tips: TipsSettingsSchema.default({
+        enabled: true,
+        tipDir: '',
+        rotateEvery: 5,
+        expiryDays: 7,
+        maxTipLength: 47
+    }),
     updatemessage: z.object({
         message: z.string().nullable().optional(),
         remaining: z.number().nullable().optional()
-    }).optional()
+    }).optional(),
+    installation: InstallationMetadataSchema.optional()
 });
 
 // Inferred type from schema
 export type Settings = z.infer<typeof SettingsSchema>;
+export type InstallationMetadata = z.infer<typeof InstallationMetadataSchema>;
+export type ResolvedInstallationMetadata
+    = | Exclude<InstallationMetadata, { method: 'pinned' }>
+        | (Extract<InstallationMetadata, { method: 'pinned' }> & { packageManager: 'npm' | 'bun' | 'unknown' });
 
 // Export a default settings constant for reference
 export const DEFAULT_SETTINGS: Settings = SettingsSchema.parse({});

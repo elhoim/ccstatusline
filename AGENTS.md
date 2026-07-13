@@ -52,6 +52,16 @@ Widgets implement the `Widget` interface (src/types/Widget.ts): `render(item, co
 
 **Registry**: `src/utils/widget-manifest.ts` — Map-based registry mapping type strings to widget instances. `src/utils/widgets.ts` provides lookup, catalog, and search.
 
+**Available Widgets:**
+- Model, Version, OutputStyle, VoiceStatus - Claude Code metadata display
+- GitBranch, GitChanges, GitInsertions, GitDeletions, GitWorktree - Git repository status
+- TokensInput, TokensOutput, TokensCached, TokensTotal - Token usage metrics
+- ContextLength, ContextPercentage, ContextPercentageUsable - Context window metrics (uses dynamic model-based context windows: 1M for Sonnet 4.5 with [1m] suffix, 200k for all other models)
+- BlockTimer, SessionClock, SessionCost - Time and cost tracking
+- CurrentWorkingDir, TerminalWidth - Environment info
+- CustomText, CustomCommand - User-defined widgets
+- Tip - Rotating tips widget (version-update and general usage tips)
+
 **Widget categories**: Core metadata (model, version), Git (branch, changes, insertions, deletions, root-dir, worktree), Tokens (input, output, cached, total), Context (length, percentage, bar), Speed (input, output, total with configurable windows), Session (clock, cost, block-timer, reset-timer, weekly timers, usage), Environment (cwd, terminal-width, free-memory, vim-mode), Integration (session-id, session-name, skills, thinking-effort), User-defined (custom-text, custom-command, link), Layout (separator, flex-separator).
 
 **Widget config** (`WidgetItem`): Each widget instance has `id`, `type`, `color`, `backgroundColor`, `bold`, `rawValue`, `maxWidth`, `merge`, `metadata` (widget-specific flags like `hideNoGit`, `showRemaining`, speed window config).
