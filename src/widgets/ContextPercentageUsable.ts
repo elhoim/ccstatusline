@@ -64,6 +64,11 @@ export class ContextPercentageUsableWidget implements Widget {
             return formatRawOrLabeledValue(item, label, sliderResult ?? `${displayPercentage.toFixed(1)}%`);
         };
 
+        const formatContextPercentage = (displayPercentage: number): string => {
+            const sliderResult = renderContextSlider(sliderMode, displayPercentage);
+            return formatRawOrLabeledValue(item, label, sliderResult ?? `${displayPercentage.toFixed(1)}%`);
+        };
+
         if (context.isPreview) {
             return formatContextPercentage(isInverse ? 88.4 : 11.6);
         }
