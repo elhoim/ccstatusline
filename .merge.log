@@ -1,6 +1,0 @@
-Auto-merging src/utils/terminal.ts
-Auto-merging src/utils/widgets.ts
-CONFLICT (content): Merge conflict in src/utils/widgets.ts
-Auto-merging src/widgets/index.ts
-CONFLICT (content): Merge conflict in src/widgets/index.ts
-Automatic merge failed; fix conflicts and then commit the result.
