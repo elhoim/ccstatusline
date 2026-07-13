@@ -8,7 +8,6 @@ import {
     DEFAULT_SETTINGS,
     type Settings
 } from '../../types/Settings';
-import type { WidgetItemType } from '../../types/Widget';
 import {
     filterWidgetCatalog,
     getAllWidgetTypes,
@@ -73,7 +72,7 @@ describe('widget catalog', () => {
         expect(types.has('flex-separator')).toBe(true);
     });
 
-    it('hides both separator types in powerline mode', () => {
+    it('hides manual separator but keeps flex separator in powerline mode', () => {
         const catalog = getWidgetCatalog({
             ...baseSettings,
             powerline: {
@@ -84,7 +83,7 @@ describe('widget catalog', () => {
 
         const types = new Set(catalog.map(entry => entry.type));
         expect(types.has('separator')).toBe(false);
-        expect(types.has('flex-separator')).toBe(false);
+        expect(types.has('flex-separator')).toBe(true);
     });
 
     it('returns unique categories in discovery order', () => {
@@ -197,14 +196,14 @@ describe('widget catalog filtering', () => {
     it('ranks exact substring matches above fuzzy matches', () => {
         const rankingCatalog: WidgetCatalogEntry[] = [
             {
-                type: 'exact-match' as WidgetItemType,
+                type: 'exact-match',
                 displayName: 'Git Branch',
                 description: 'Exact substring match',
                 category: 'Core',
                 searchText: 'git branch exact substring match exact-match'
             },
             {
-                type: 'fuzzy-match' as WidgetItemType,
+                type: 'fuzzy-match',
                 displayName: 'Global Input Timer',
                 description: 'Fuzzy-only match',
                 category: 'Core',
@@ -217,28 +216,28 @@ describe('widget catalog filtering', () => {
     });
 
     it('returns no results when query chars cannot form a subsequence in any entry', () => {
-        const results = filterWidgetCatalog(catalog, 'All', 'zzz');
+        const results = filterWidgetCatalog(catalog, 'All', 'zzzz');
         expect(results).toHaveLength(0);
     });
 
     it('prioritizes name match before type and description matches', () => {
         const rankingCatalog: WidgetCatalogEntry[] = [
             {
-                type: 'alpha' as WidgetItemType,
+                type: 'alpha',
                 displayName: 'Git Branch',
                 description: 'Primary match',
                 category: 'Core',
                 searchText: 'git branch primary match alpha'
             },
             {
-                type: 'git-type-only' as WidgetItemType,
+                type: 'git-type-only',
                 displayName: 'Branch',
                 description: 'Type fallback match',
                 category: 'Core',
                 searchText: 'branch type fallback match git-type-only'
             },
             {
-                type: 'desc-only' as WidgetItemType,
+                type: 'desc-only',
                 displayName: 'Branch',
                 description: 'Description contains git',
                 category: 'Core',

@@ -1,0 +1,10 @@
+Auto-merging README.md
+CONFLICT (content): Merge conflict in README.md
+Auto-merging src/ccstatusline.ts
+CONFLICT (content): Merge conflict in src/ccstatusline.ts
+Auto-merging src/tui/components/StatusLinePreview.tsx
+Auto-merging src/types/Settings.ts
+Auto-merging src/utils/__tests__/renderer-flex-width.test.ts
+Auto-merging src/utils/renderer.ts
+CONFLICT (content): Merge conflict in src/utils/renderer.ts
+Automatic merge failed; fix conflicts and then commit the result.
