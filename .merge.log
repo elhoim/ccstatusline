@@ -1,0 +1,5 @@
+Auto-merging src/utils/__tests__/usage-fetch.test.ts
+CONFLICT (content): Merge conflict in src/utils/__tests__/usage-fetch.test.ts
+Auto-merging src/utils/usage-fetch.ts
+CONFLICT (content): Merge conflict in src/utils/usage-fetch.ts
+Automatic merge failed; fix conflicts and then commit the result.
