@@ -35,7 +35,7 @@ describe('ExtraUsageRemainingWidget', () => {
             usageData: {
                 extraUsageEnabled: true,
                 extraUsageLimit: 400000,
-                extraUsageUsed: 106
+                extraUsageUsed: 10600
             }
         };
 
@@ -47,6 +47,19 @@ describe('ExtraUsageRemainingWidget', () => {
         }, context)).toBe('$3,894.00');
     });
 
+    it('formats remaining budget in the currency reported by the API', () => {
+        const widget = new ExtraUsageRemainingWidget();
+
+        expect(render(widget, { id: 'extra', type: 'extra-usage-remaining' }, {
+            usageData: {
+                extraUsageCurrency: 'EUR',
+                extraUsageEnabled: true,
+                extraUsageLimit: 400000,
+                extraUsageUsed: 10600
+            }
+        })).toBe('Overage Left: €3,894.00');
+    });
+
     it('clamps remaining budget at zero', () => {
         const widget = new ExtraUsageRemainingWidget();
 
@@ -54,7 +67,7 @@ describe('ExtraUsageRemainingWidget', () => {
             usageData: {
                 extraUsageEnabled: true,
                 extraUsageLimit: 1000,
-                extraUsageUsed: 15
+                extraUsageUsed: 1500
             }
         })).toBe('Overage Left: $0.00');
     });
@@ -84,7 +97,7 @@ describe('ExtraUsageRemainingWidget', () => {
                 error: 'timeout',
                 extraUsageEnabled: true,
                 extraUsageLimit: 400000,
-                extraUsageUsed: 106
+                extraUsageUsed: 10600
             }
         })).toBe('Overage Left: $3,894.00');
     });
@@ -111,7 +124,7 @@ describe('ExtraUsageRemainingWidget', () => {
                 error: 'timeout',
                 extraUsageEnabled: false,
                 extraUsageLimit: 400000,
-                extraUsageUsed: 106
+                extraUsageUsed: 10600
             }
         })).toBe('Overage Left: n/a');
         expect(render(widget, { id: 'extra', rawValue: true, type: 'extra-usage-remaining' }, { usageData: { extraUsageEnabled: false } })).toBe('n/a');

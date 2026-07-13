@@ -1,0 +1,5 @@
+Auto-merging src/utils/__tests__/model-context.test.ts
+CONFLICT (content): Merge conflict in src/utils/__tests__/model-context.test.ts
+Auto-merging src/utils/model-context.ts
+CONFLICT (content): Merge conflict in src/utils/model-context.ts
+Automatic merge failed; fix conflicts and then commit the result.
