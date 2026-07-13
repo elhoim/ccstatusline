@@ -1,0 +1,9 @@
+Auto-merging AGENTS.md
+Auto-merging src/utils/__tests__/model-context.test.ts
+Auto-merging src/utils/model-context.ts
+CONFLICT (content): Merge conflict in src/utils/model-context.ts
+Auto-merging src/widgets/ContextPercentageUsable.ts
+CONFLICT (content): Merge conflict in src/widgets/ContextPercentageUsable.ts
+Auto-merging src/widgets/__tests__/ContextPercentageUsable.test.ts
+CONFLICT (content): Merge conflict in src/widgets/__tests__/ContextPercentageUsable.test.ts
+Automatic merge failed; fix conflicts and then commit the result.

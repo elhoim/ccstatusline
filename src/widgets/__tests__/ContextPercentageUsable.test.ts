@@ -83,7 +83,7 @@ describe('ContextPercentageUsableWidget', () => {
             }
         };
 
-        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx(u): 4.1%');
+        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx(u) Used: 4.1%');
     });
 
     it('uses context_window_size for usable denominator even without [1m] model suffix', () => {
@@ -106,13 +106,13 @@ describe('ContextPercentageUsableWidget', () => {
             }
         };
 
-        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx(u): 4.3%');
+        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx(u) Used: 4.3%');
     });
 
     describe('1M models with 967k usable tokens', () => {
         it('should calculate percentage using 967k denominator for Sonnet 4.5 with [1m] suffix', () => {
             const result = render('claude-sonnet-4-5-20250929[1m]', 42000);
-            expect(result).toBe('Ctx(u): 4.3%');
+            expect(result).toBe('Ctx(u) Used: 4.3%');
         });
 
         it('should calculate percentage using 967k denominator for Sonnet 4.5 (raw value) with [1m] suffix', () => {
@@ -122,34 +122,34 @@ describe('ContextPercentageUsableWidget', () => {
 
         it('should treat [1M] suffix case-insensitively in fallback mode', () => {
             const result = render('claude-sonnet-4-5-20250929[1M]', 42000);
-            expect(result).toBe('Ctx(u): 4.3%');
+            expect(result).toBe('Ctx(u) Used: 4.3%');
         });
 
         it('uses 1M context labels in model id for fallback denominator', () => {
             const result = render('Opus 4.6 (1M context)', 42000);
-            expect(result).toBe('Ctx(u): 4.3%');
+            expect(result).toBe('Ctx(u) Used: 4.3%');
         });
 
         it('uses 1M in parentheses in model id for fallback denominator', () => {
             const result = render('Opus 4.6 (1M)', 42000);
-            expect(result).toBe('Ctx(u): 4.3%');
+            expect(result).toBe('Ctx(u) Used: 4.3%');
         });
     });
 
     describe('Older models with 167k usable tokens', () => {
         it('should calculate percentage using 167k denominator for older Sonnet 3.5', () => {
             const result = render('claude-3-5-sonnet-20241022', 42000);
-            expect(result).toBe('Ctx(u): 25.1%');
+            expect(result).toBe('Ctx(u) Used: 25.1%');
         });
 
         it('should calculate percentage using 167k denominator when model ID is undefined', () => {
             const result = render(undefined, 42000);
-            expect(result).toBe('Ctx(u): 25.1%');
+            expect(result).toBe('Ctx(u) Used: 25.1%');
         });
 
         it('should calculate percentage using 167k denominator for unknown model', () => {
             const result = render('claude-unknown-model', 42000);
-            expect(result).toBe('Ctx(u): 25.1%');
+            expect(result).toBe('Ctx(u) Used: 25.1%');
         });
     });
 });
