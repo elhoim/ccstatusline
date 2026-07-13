@@ -1,8 +1,0 @@
-Auto-merging src/tui/App.tsx
-Auto-merging src/tui/components/ColorMenu.tsx
-Auto-merging src/tui/components/ItemsEditor.tsx
-CONFLICT (content): Merge conflict in src/tui/components/ItemsEditor.tsx
-Auto-merging src/tui/components/items-editor/__tests__/input-handlers.test.ts
-Auto-merging src/tui/components/items-editor/input-handlers.ts
-CONFLICT (content): Merge conflict in src/tui/components/items-editor/input-handlers.ts
-Automatic merge failed; fix conflicts and then commit the result.
