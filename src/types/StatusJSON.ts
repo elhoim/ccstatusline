@@ -19,6 +19,8 @@ const RateLimitPeriodSchema = z.object({
     resets_at: CoercedNumberSchema.nullable().optional() // Unix epoch seconds
 });
 
+export type RateLimitPeriod = z.infer<typeof RateLimitPeriodSchema>;
+
 export const StatusJSONSchema = z.looseObject({
     hook_event_name: z.string().optional(),
     session_id: z.string().optional(),
@@ -69,12 +71,20 @@ export const StatusJSONSchema = z.looseObject({
         original_cwd: z.string().optional(),
         original_branch: z.string().optional()
     }).nullable().optional(),
-    rate_limits: z.object({
+    // Note: no seven_day_fable field here. An earlier version of the Fable
+    // widget assumed one existed, mirroring seven_day_sonnet/seven_day_opus,
+    // but that was never confirmed against a real hook payload -- and the
+    // equivalent flat field doesn't exist in the HTTP /api/oauth/usage
+    // response either (see usage-fetch.ts's UsageLimitEntrySchema comment).
+    // looseObject (rather than object) so that if the hook payload ever does
+    // add a Fable-scoped field -- flat or otherwise -- it survives parsing
+    // and is readable generically via WEEKLY_MODEL_USAGE_BUCKETS in
+    // usage-prefetch.ts instead of silently being stripped as unknown.
+    rate_limits: z.looseObject({
         five_hour: RateLimitPeriodSchema.optional(),
         seven_day: RateLimitPeriodSchema.optional(),
         seven_day_sonnet: RateLimitPeriodSchema.nullable().optional(),
-        seven_day_opus: RateLimitPeriodSchema.nullable().optional(),
-        seven_day_fable: RateLimitPeriodSchema.nullable().optional()
+        seven_day_opus: RateLimitPeriodSchema.nullable().optional()
     }).nullable().optional()
 });
 

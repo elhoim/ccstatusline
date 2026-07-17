@@ -32,3 +32,42 @@ export interface UsageWindowMetrics {
     elapsedPercent: number;
     remainingPercent: number;
 }
+
+export type UsageDataField = Exclude<keyof UsageData, 'error'>;
+
+// TypeScript can't narrow `target[field] = value` when `field` is a plain
+// UsageDataField union at the call site (it can't prove `value`'s type
+// matches whichever union member `field` happens to be), but it can when both
+// are tied to the same generic `K` here. Shared because both usage-fetch.ts
+// and usage-prefetch.ts need to assign UsageData fields by a dynamic key.
+export function setUsageField<K extends UsageDataField>(target: Partial<UsageData>, field: K, value: UsageData[K]): void {
+    target[field] = value;
+}
+
+// Single source of truth for the per-model weekly usage buckets (Sonnet,
+// Opus, Fable, ...). Every place that used to hand-list "sonnet, then opus,
+// then fable" (the widget registry, the API/cache schemas, the rate-limits
+// extractor) now derives from this array instead, so adding or renaming a
+// model bucket can't desync one of those spots from the others.
+export interface WeeklyModelUsageBucket {
+    widgetType: string;
+    // /api/oauth/usage reports per-model weekly usage as an entry in its
+    // `limits` array (kind: "weekly_scoped", matched by
+    // scope.model.display_name), not as a flat bucket -- the older
+    // seven_day_sonnet/seven_day_opus-style flat keys were observed (2026-07)
+    // returning null even for models with real usage, and seven_day_fable
+    // never existed as a real field at all despite an earlier version of
+    // this widget assuming it did. modelDisplayName drives the limits[]
+    // lookup; apiBucketKey is kept only as a fallback for API responses (or
+    // stale caches) that still populate a flat key for this model.
+    modelDisplayName: string; // e.g. "Sonnet", "Opus", "Fable" -- matched against limits[].scope.model.display_name
+    apiBucketKey: string; // legacy flat key, e.g. "seven_day_sonnet" -- see modelDisplayName above
+    usageField: UsageDataField;
+    resetField: UsageDataField;
+}
+
+export const WEEKLY_MODEL_USAGE_BUCKETS: readonly WeeklyModelUsageBucket[] = [
+    { widgetType: 'weekly-sonnet-usage', modelDisplayName: 'Sonnet', apiBucketKey: 'seven_day_sonnet', usageField: 'weeklySonnetUsage', resetField: 'weeklySonnetResetAt' },
+    { widgetType: 'weekly-opus-usage', modelDisplayName: 'Opus', apiBucketKey: 'seven_day_opus', usageField: 'weeklyOpusUsage', resetField: 'weeklyOpusResetAt' },
+    { widgetType: 'weekly-fable-usage', modelDisplayName: 'Fable', apiBucketKey: 'seven_day_fable', usageField: 'weeklyFableUsage', resetField: 'weeklyFableResetAt' }
+];
