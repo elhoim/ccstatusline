@@ -13,7 +13,7 @@ Measured by sampling `/proc` every 50ms for 2 hours and summing CPU per matching
 | Renders | 2,972 (~25/min) |
 | CPU consumed | 4,845 CPU-seconds |
 | Share of machine | 11.2% sustained (67.3% of one core) |
-| Mean per render | 1.30 CPU-seconds |
+| Mean per render | 1.63 CPU-seconds (1.30 in `node` + 0.33 in sampled children) |
 
 That 11.2% is an **undercount**: the sampler matched only `node ccstatusline`
 processes, not the `sh`/`ps`/`tput`/`stty` children they spawned.
@@ -65,13 +65,52 @@ React 19 + Ink 6 are compiled on **every** render despite only being needed for
 interactive config. That is the deferred follow-up PR (dynamic `import()` +
 `bun build --splitting`), and it is now the largest single remaining cost.
 
-## Not yet measured
+## Post-install 2h sampler (measured 2026-07-13 12:07–14:07)
 
-The 2h `/proc` sampler has **not** been re-run against this build. Doing so requires
-installing it over the live `/usr/local/bin/ccstatusline`, which would affect all
-running sessions; deferred pending a decision to install. Extrapolating the A/B ratio
-(1.08 / 4.37) from the 11.2% baseline suggests roughly **2–3% of the machine**, but
-that is a projection, not a measurement, and it is recorded here as such.
+The build was installed over the live statusline (reversibly, via
+`~/.claude/jobs-statusline.sh`) and the same 2h `/proc` sampler re-run. Both runs
+below sum **all** sampled categories, so they are like-for-like:
+
+| | Before | After |
+| --- | --- | --- |
+| Renders | 2,972 (24.8/min) | 6,638 (**55.3/min**) |
+| `ccstatusline` CPU-s | 3,872.8 | 7,819.7 |
+| `wrapper` (children) CPU-s | 972.7 | **2.8** |
+| Sampler-visible CPU per render | 1.630 | **1.178** |
+| Share of the 6-core machine | 11.22% | **18.11%** |
+
+**The raw machine share went up, and that is not a regression.** Two things changed
+at once, and both must be held in view:
+
+1. **The render rate more than doubled** (24.8 → 55.3/min) between the two windows —
+   more concurrent Claude sessions, nothing to do with this change.
+2. **The sampler undercounts the *before* run far more than the *after* run.** It
+   scans `/proc` every 50ms; the stock build's `ps`/`tput` children live ~10ms, so
+   most are never sampled at all (23,766 child processes were caught, against the
+   ~360,000 that 121 execve/render × 2,972 renders implies). The new build spawns no
+   children, so its coverage is essentially complete.
+
+Correcting for coverage using the A/B per-render cost (GNU `time`, which *does*
+include waited-for children):
+
+| Scenario | Renders/min | CPU/render | Machine share |
+| --- | --- | --- | --- |
+| Before, as it actually ran | 24.8 | 4.37 | **~30.1%** (sampler saw 11.2%) |
+| After, as it actually runs | 55.3 | 1.18 | **18.1%** (sampler agrees: 18.11%) |
+| Counterfactual: stock at today's rate | 55.3 | 4.37 | **~67.1%** |
+
+So the fix avoids roughly **49 points of a 6-core machine** at the current load.
+
+The two instruments **cross-validate on the "after" figure** — the A/B predicted 1.08
+CPU-s/render and the live sampler measured 1.178 (the gap is the wrapper `bash`). They
+disagree on "before" precisely where the sampler is known to be blind.
+
+**The earlier projection in this document was wrong.** It predicted 2–3% of the
+machine by scaling the 11.2% baseline by the A/B ratio. Both of its assumptions
+failed: the baseline was itself an undercount, and it held the render rate constant
+when the rate in fact doubled. Recorded here rather than deleted, because the failure
+mode — extrapolating from a number you have already labelled unreliable — is the
+lesson.
 
 ## Test suite
 
