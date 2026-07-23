@@ -103,6 +103,7 @@ export const WIDGET_MANIFEST: WidgetManifestEntry[] = [
     { type: 'worktree-branch', create: () => new widgets.GitWorktreeBranchWidget() },
     { type: 'worktree-original-branch', create: () => new widgets.GitWorktreeOriginalBranchWidget() },
     { type: 'compaction-counter', create: () => new widgets.CompactionCounterWidget() },
+    { type: 'rclone-queue', create: () => new widgets.RCloneQueueWidget() },
     { type: 'cache-timer', create: () => new widgets.CacheTimerWidget() }
 ];
 
