@@ -1,0 +1,24 @@
+{
+  "pr": "sirmalloc/ccstatusline#510",
+  "checked_at": "2026-07-28",
+  "state": "CLOSED",
+  "merged": false,
+  "mergeNote": "Repo owner squashed PR content directly to main (commit c1cb09e) on 2026-07-25 because the contributor's branch was protected and fixes couldn't be pushed back. Shows as Closed rather than Merged, but elhoim is listed as co-author.",
+  "reviewDecision": null,
+  "mergeable": null,
+  "mergeStateStatus": null,
+  "comments": [
+    {
+      "author": "elhoim",
+      "createdAt": "2026-07-17",
+      "excerpt": "PR description: fixes API response shape change for usage tracking; legacy seven_day_sonnet/seven_day_opus buckets now null, real per-model weekly usage in limits[] array matched by scope.model.display_name; added fallback + schema-parity tests."
+    },
+    {
+      "author": "sirmalloc",
+      "createdAt": "2026-07-25",
+      "excerpt": "Squashed this to main with a few fixes, but wasn't able to push fixes to your PR branch because it was protected. Had to squash directly to main, which is why this shows as Closed instead of Merged. But the commit does have you listed as co-author for contributor credit."
+    }
+  ],
+  "reviews": [],
+  "note": "Fetched via public GitHub page (WebFetch) rather than gh/API due to session repo-scope restrictions (session scoped to elhoim/ccstatusline only; sirmalloc/ccstatusline not addable as it's a different owner tier). Field precision is limited to what's visible on the rendered PR page."
+}
